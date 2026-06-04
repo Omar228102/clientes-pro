@@ -11,7 +11,7 @@ const MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov
 const DRIVE_FILE_NAME = "clientespro_data.json";
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────────
-const fmt = (n) => new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n||0);
+const fmt = (n) => new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS"}).format(n||0);
 const uid = () => Date.now() + Math.floor(Math.random()*9999);
 const today = () => new Date().toISOString().slice(0,10);
 const totalItems = (items) => items.reduce((s,i)=>s+i.amount,0);
@@ -19,18 +19,18 @@ const paidItems = (items) => items.filter(i=>i.status==="pagado").reduce((s,i)=>
 const pendingItems = (items) => items.filter(i=>i.status==="pendiente").reduce((s,i)=>s+i.amount,0);
 
 const SEED = [
-  { id:1, name:"María García", phone:"5551234567", email:"maria@email.com", notes:"Cliente frecuente, prefiere transferencia.",
+  { id:1, name:"María García", cuit:"27-28765432-4", condicionFiscal:"Monotributista", phone:"1155551234", email:"maria@email.com", notes:"Cliente frecuente, prefiere transferencia.",
     items:[
-      {id:101,concept:"Honorarios",description:"Consulta mensual",amount:1500,date:"2026-03-10",status:"pagado"},
-      {id:102,concept:"Materiales",description:"Insumos",amount:350,date:"2026-03-10",status:"pagado"},
-      {id:103,concept:"Honorarios",description:"Consulta mensual",amount:1500,date:"2026-04-08",status:"pagado"},
-      {id:104,concept:"Honorarios",description:"Consulta mensual",amount:1500,date:"2026-05-06",status:"pendiente"},
+      {id:101,concept:"Honorarios",description:"Consulta mensual",amount:150000,date:"2026-03-10",status:"pagado"},
+      {id:102,concept:"Materiales",description:"Insumos",amount:35000,date:"2026-03-10",status:"pagado"},
+      {id:103,concept:"Honorarios",description:"Consulta mensual",amount:150000,date:"2026-04-08",status:"pagado"},
+      {id:104,concept:"Honorarios",description:"Consulta mensual",amount:150000,date:"2026-05-06",status:"pendiente"},
     ]},
-  { id:2, name:"Carlos López", phone:"5559876543", email:"carlos@empresa.com", notes:"Requiere factura.",
+  { id:2, name:"Carlos López", cuit:"20-30456789-1", condicionFiscal:"Responsable Inscripto", phone:"1166667890", email:"carlos@empresa.com", notes:"Requiere factura A.",
     items:[
-      {id:201,concept:"Consultoría",description:"Auditoría de procesos",amount:4500,date:"2026-02-15",status:"pagado"},
-      {id:202,concept:"Capacitación",description:"Taller 8 hrs",amount:2200,date:"2026-03-20",status:"pagado"},
-      {id:203,concept:"Consultoría",description:"Seguimiento Q2",amount:3000,date:"2026-05-01",status:"pendiente"},
+      {id:201,concept:"Consultoría",description:"Auditoría de procesos",amount:450000,date:"2026-02-15",status:"pagado"},
+      {id:202,concept:"Capacitación",description:"Taller 8 hrs",amount:220000,date:"2026-03-20",status:"pagado"},
+      {id:203,concept:"Consultoría",description:"Seguimiento Q2",amount:300000,date:"2026-05-01",status:"pendiente"},
     ]},
 ];
 
@@ -152,7 +152,7 @@ function TicketModal({ client, onClose }) {
   const ticketText =
     `🧾 *TICKET DE COBRO*\n━━━━━━━━━━━━━━━━━━━━━\n`+
     `📋 Folio: ${folio}\n📅 Fecha: ${nowStr}\n━━━━━━━━━━━━━━━━━━━━━\n`+
-    `👤 ${client.name}\n📞 ${client.phone}\n`+(client.email?`📧 ${client.email}\n`:"")+
+    `👤 ${client.name}\n`+(client.cuit?`📋 CUIT: ${client.cuit}\n`:"")+`📞 ${client.phone}\n`+(client.email?`📧 ${client.email}\n`:"")+
     `━━━━━━━━━━━━━━━━━━━━━\n${byConceptLines}\n━━━━━━━━━━━━━━━━━━━━━\n`+
     `💰 TOTAL: ${fmt(total)}\n━━━━━━━━━━━━━━━━━━━━━\n¡Gracias por su confianza! 🙏`;
 
@@ -241,8 +241,8 @@ function ClientDetail({ client, onBack, onUpdate }) {
       </div>
       <div style={{...S.card,marginBottom:16}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10,marginBottom:14}}>
-          {[["📞",client.phone],["📧",client.email||"—"],["📝",client.notes||"Sin notas"]].map(([ic,v])=>(
-            <div key={ic} style={{display:"flex",gap:8}}><span style={{opacity:0.4}}>{ic}</span><span style={{fontSize:13,color:"#cbd5e1"}}>{v}</span></div>
+          {[["📋 CUIT",client.cuit||"—"],["🏦",client.condicionFiscal||"—"],["📞",client.phone||"—"],["📧",client.email||"—"],["📝",client.notes||"Sin notas"]].map(([ic,v])=>(
+            <div key={ic} style={{display:"flex",gap:8}}><span style={{opacity:0.4,fontSize:12}}>{ic}</span><span style={{fontSize:13,color:"#cbd5e1"}}>{v}</span></div>
           ))}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.06)"}}>
@@ -288,25 +288,121 @@ function ClientDetail({ client, onBack, onUpdate }) {
   );
 }
 
+// ─── CUIT FORMATTER ──────────────────────────────────────────────────────────────
+function formatCuit(v) {
+  const n = v.replace(/\D/g,"").slice(0,11);
+  if(n.length<=2) return n;
+  if(n.length<=10) return `${n.slice(0,2)}-${n.slice(2)}`;
+  return `${n.slice(0,2)}-${n.slice(2,10)}-${n.slice(10)}`;
+}
+
 // ─── CLIENT FORM ─────────────────────────────────────────────────────────────────
 function ClientForm({ initial, onSave, onCancel }) {
-  const [f,setF] = useState(initial||{name:"",phone:"",email:"",notes:"",items:[]});
+  const [f,setF] = useState(initial||{name:"",cuit:"",condicionFiscal:"",phone:"",email:"",notes:"",items:[]});
+  const [arcaLoading, setArcaLoading] = useState(false);
+  const [arcaMsg, setArcaMsg] = useState("");
   const set = k=>e=>setF({...f,[k]:e.target.value});
+
+  const consultarARCA = async () => {
+    const cuitLimpio = f.cuit.replace(/\D/g,"");
+    if(cuitLimpio.length !== 11) return setArcaMsg("⚠ Ingresá un CUIT válido de 11 dígitos");
+    setArcaLoading(true);
+    setArcaMsg("Consultando ARCA...");
+    try {
+      // Usamos la API pública de ARCA/AFIP a través de un proxy CORS
+      const res = await fetch(`https://afip.tangofactura.com/Rest/GetContribuyenteFull?cuit=${cuitLimpio}`);
+      const data = await res.json();
+      if(data && data.Contribuyente) {
+        const c = data.Contribuyente;
+        const nombre = c.nombre || c.razonSocial || "";
+        const condicion = c.tipoClave === "CUIT" ? (c.categoriasMonotributo?.length > 0 ? "Monotributista" : "Responsable Inscripto") : "Consumidor Final";
+        setF(prev=>({...prev, name: nombre, condicionFiscal: condicion}));
+        setArcaMsg(`✓ Datos cargados: ${nombre} — ${condicion}`);
+      } else {
+        setArcaMsg("⚠ CUIT no encontrado en ARCA. Completá los datos manualmente.");
+      }
+    } catch(e) {
+      // Fallback: intentar con otra API pública
+      try {
+        const res2 = await fetch(`https://api.afip.services/v1/contribuyente/${cuitLimpio}`);
+        const data2 = await res2.json();
+        if(data2?.nombre) {
+          setF(prev=>({...prev, name: data2.nombre, condicionFiscal: data2.condicion || ""}));
+          setArcaMsg(`✓ Datos cargados: ${data2.nombre}`);
+        } else {
+          setArcaMsg("⚠ No se pudo conectar con ARCA. Completá los datos manualmente.");
+        }
+      } catch {
+        setArcaMsg("⚠ No se pudo conectar con ARCA. Completá los datos manualmente.");
+      }
+    }
+    setArcaLoading(false);
+  };
+
   return (
-    <div style={{...S.card,maxWidth:580,margin:"0 auto"}}>
-      <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800,color:"#f1f5f9"}}>{initial?"✏️ Editar":"➕ Nuevo Cliente"}</h2>
+    <div style={{...S.card,maxWidth:600,margin:"0 auto"}}>
+      <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800,color:"#f1f5f9"}}>{initial?"✏️ Editar Cliente":"➕ Nuevo Cliente"}</h2>
+
+      {/* CUIT con botón ARCA */}
+      <div style={{...S.field,marginBottom:14}}>
+        <label style={S.lbl}>CUIT</label>
+        <div style={{display:"flex",gap:8}}>
+          <input
+            value={f.cuit||""}
+            onChange={e=>setF({...f,cuit:formatCuit(e.target.value)})}
+            placeholder="20-12345678-9"
+            maxLength={13}
+            style={{...S.inp,flex:1,letterSpacing:"0.05em"}}
+          />
+          <button
+            onClick={consultarARCA}
+            disabled={arcaLoading}
+            style={{...S.btn,...S.btnPrimary,padding:"8px 14px",fontSize:13,whiteSpace:"nowrap",opacity:arcaLoading?0.6:1}}
+          >
+            {arcaLoading?"Consultando...":"🔍 Consultar ARCA"}
+          </button>
+        </div>
+        {arcaMsg && (
+          <div style={{fontSize:12,marginTop:6,padding:"6px 10px",borderRadius:6,
+            background: arcaMsg.startsWith("✓")?"rgba(110,231,183,0.1)":"rgba(252,165,165,0.1)",
+            color: arcaMsg.startsWith("✓")?"#6ee7b7":"#fca5a5"}}>
+            {arcaMsg}
+          </div>
+        )}
+      </div>
+
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-        {[["Nombre *","name","text","Ana García"],["Teléfono *","phone","tel","555-0000"],["Correo","email","email","correo@ej.com"]].map(([l,k,t,p])=>(
-          <div key={k} style={S.field}><label style={S.lbl}>{l}</label>
-            <input type={t} value={f[k]||""} onChange={set(k)} placeholder={p} style={S.inp}/></div>
-        ))}
-        <div style={{...S.field,gridColumn:"1/-1"}}><label style={S.lbl}>Notas internas</label>
-          <textarea value={f.notes||""} onChange={set("notes")} placeholder="Preferencias, observaciones..." style={{...S.inp,resize:"vertical",minHeight:60}}/></div>
+        <div style={{...S.field,gridColumn:"1/-1"}}>
+          <label style={S.lbl}>Nombre / Razón Social *</label>
+          <input value={f.name||""} onChange={set("name")} placeholder="Se completa automáticamente con ARCA" style={S.inp}/>
+        </div>
+        <div style={S.field}>
+          <label style={S.lbl}>Condición fiscal</label>
+          <select value={f.condicionFiscal||""} onChange={set("condicionFiscal")} style={S.inp}>
+            <option value="">Seleccionar...</option>
+            <option>Responsable Inscripto</option>
+            <option>Monotributista</option>
+            <option>Consumidor Final</option>
+            <option>Exento</option>
+          </select>
+        </div>
+        <div style={S.field}>
+          <label style={S.lbl}>Teléfono</label>
+          <input type="tel" value={f.phone||""} onChange={set("phone")} placeholder="11 1234-5678" style={S.inp}/>
+        </div>
+        <div style={{...S.field,gridColumn:"1/-1"}}>
+          <label style={S.lbl}>Correo electrónico</label>
+          <input type="email" value={f.email||""} onChange={set("email")} placeholder="correo@ejemplo.com" style={S.inp}/>
+        </div>
+        <div style={{...S.field,gridColumn:"1/-1"}}>
+          <label style={S.lbl}>Notas internas</label>
+          <textarea value={f.notes||""} onChange={set("notes")} placeholder="Preferencias, observaciones..." style={{...S.inp,resize:"vertical",minHeight:60}}/>
+        </div>
       </div>
       <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:18}}>
         <button onClick={onCancel} style={{...S.btn,...S.btnGhost}}>Cancelar</button>
-        <button onClick={()=>{if(!f.name||!f.phone)return alert("Nombre y teléfono requeridos.");onSave(f);}} style={{...S.btn,...S.btnPrimary}}>
-          {initial?"Guardar":"Crear cliente"}
+        <button onClick={()=>{if(!f.name)return alert("El nombre es obligatorio.");onSave(f);}} style={{...S.btn,...S.btnPrimary}}>
+          {initial?"Guardar cambios":"Crear cliente"}
         </button>
       </div>
     </div>
@@ -509,7 +605,10 @@ export default function App() {
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                     <div>
                       <div style={{fontWeight:800,fontSize:15,color:"#f1f5f9"}}>{c.name}</div>
-                      <div style={{fontSize:11,color:"#475569",marginTop:2}}>{c.phone}{c.email&&` · ${c.email}`}</div>
+                      <div style={{fontSize:11,color:"#475569",marginTop:2,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                        {c.cuit && <span>CUIT {c.cuit}</span>}
+                        {c.condicionFiscal && <span style={{...S.ctag,background:"rgba(147,197,253,0.12)",color:"#93c5fd",fontSize:10,padding:"1px 7px"}}>{c.condicionFiscal}</span>}
+                      </div>
                     </div>
                     <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
                       <button onClick={()=>{setSelected(c);setView("edit");}} style={{...S.iconBtn,color:"#fde68a"}}>✏️</button>
