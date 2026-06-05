@@ -285,17 +285,19 @@ function CopyMonthModal({ client, onCopy, onClose }) {
 }
 
 // ─── RECIBO MODAL ─────────────────────────────────────────────────────────────────
-function ReciboModal({ client, company, concepts, onClose }) {
+function ReciboModal({ client, company, concepts, onClose, onSaveRecibo }) {
   const [selected,setSelected] = useState((client.items||[]).filter(i=>i.status==="pendiente").map(i=>i.id));
   const [extraItems,setExtraItems] = useState([]);
   const [addingExtra,setAddingExtra] = useState(false);
   const [ef,setEf] = useState({concept:concepts[0]||"Honorarios",description:"",amount:""});
+  const [saved,setSaved] = useState(false);
   const toggle = id=>setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
   const allItems = [...(client.items||[]),...extraItems];
   const chosen = allItems.filter(i=>selected.includes(i.id));
   const total = chosen.reduce((s,i)=>s+(i.amount||0),0);
   const folio = `R-${Date.now().toString().slice(-6)}`;
-  const nowStr = new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"long",year:"numeric"});
+  const nowDate = new Date();
+  const nowStr = nowDate.toLocaleDateString("es-AR",{day:"2-digit",month:"long",year:"numeric"});
 
   const addExtra = ()=>{
     if(!ef.description||!ef.amount)return;
@@ -320,12 +322,34 @@ function ReciboModal({ client, company, concepts, onClose }) {
     chosen.map(i=>`• ${i.concept} — ${i.description}: ${fmt(i.amount)}`).join("\n")+
     `\n━━━━━━━━━━━━━━━━━━━━━\n💰 TOTAL: ${fmt(total)}\n━━━━━━━━━━━━━━━━━━━━━\n¡Gracias por su confianza! 🙏`;
 
+  const handleEmit = async (action) => {
+    if(!chosen.length) return alert("Seleccioná al menos un ítem.");
+    // Save recibo to Firebase
+    const recibo = {
+      id: uid(),
+      folio,
+      date: nowDate.toISOString().slice(0,10),
+      month: nowDate.getMonth(),
+      year: nowDate.getFullYear(),
+      clientId: client.id,
+      clientName: client.name,
+      clientCuit: client.cuit||"",
+      items: chosen,
+      total,
+    };
+    await onSaveRecibo(recibo);
+    setSaved(true);
+    if(action==="pdf") generatePDF(client,company,chosen,folio);
+    else if(action==="whatsapp") window.open(`https://wa.me/${(client.phone||"").replace(/\D/g,"")}?text=${encodeURIComponent(reciboText)}`,"_blank");
+    else if(action==="copy") { navigator.clipboard.writeText(reciboText); alert("¡Copiado!"); }
+  };
+
   return (
     <div style={S.overlay}>
       <div style={{...S.modal,maxWidth:560}}>
         <div style={S.modalHead}><span style={S.modalTitle}>🧾 Emitir Recibo</span><button onClick={onClose} style={S.xBtn}>✕</button></div>
-        <p style={{fontSize:12,color:"#64748b",margin:"0 0 10px"}}>Seleccioná los ítems a incluir en el recibo:</p>
-
+        {saved&&<div style={{background:"rgba(110,231,183,0.1)",border:"1px solid rgba(110,231,183,0.2)",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:12,color:"#6ee7b7"}}>✓ Recibo guardado en el historial</div>}
+        <p style={{fontSize:12,color:"#64748b",margin:"0 0 10px"}}>Seleccioná los ítems a incluir:</p>
         <div style={{maxHeight:160,overflowY:"auto",marginBottom:10}}>
           {(client.items||[]).length===0&&<div style={{color:"#334155",fontSize:12,padding:"6px 0"}}>Sin ítems cargados.</div>}
           {(client.items||[]).map(item=>(
@@ -339,7 +363,6 @@ function ReciboModal({ client, company, concepts, onClose }) {
             </label>
           ))}
         </div>
-
         {extraItems.length>0&&(
           <div style={{marginBottom:10}}>
             <div style={{fontSize:11,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6,fontWeight:700}}>Ítems adicionales</div>
@@ -354,7 +377,6 @@ function ReciboModal({ client, company, concepts, onClose }) {
             ))}
           </div>
         )}
-
         {addingExtra?(
           <div style={{background:"rgba(15,23,42,0.6)",borderRadius:8,padding:12,marginBottom:10}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
@@ -373,18 +395,144 @@ function ReciboModal({ client, company, concepts, onClose }) {
         ):(
           <button onClick={()=>setAddingExtra(true)} style={{...S.btn,...S.btnGhost,width:"100%",marginBottom:12,fontSize:12,padding:"7px"}}>+ Agregar ítem al recibo</button>
         )}
-
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:"rgba(15,23,42,0.5)",borderRadius:8,marginBottom:12}}>
           <span style={{color:"#94a3b8",fontSize:13}}>{chosen.length} ítem{chosen.length!==1?"s":""} seleccionado{chosen.length!==1?"s":""}</span>
           <span style={{fontWeight:800,fontSize:20,color:"#6ee7b7"}}>{fmt(total)}</span>
         </div>
-
         <div style={{display:"flex",gap:8,marginBottom:10}}>
-          <button onClick={()=>generatePDF(client,company,chosen,folio)} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",flex:1}}>📄 Descargar PDF</button>
-          <button onClick={()=>{ navigator.clipboard.writeText(reciboText); alert("¡Copiado!"); }} style={{...S.btn,...S.btnGhost,flex:1}}>📋 Copiar texto</button>
+          <button onClick={()=>handleEmit("pdf")} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",flex:1}}>📄 PDF</button>
+          <button onClick={()=>handleEmit("copy")} style={{...S.btn,...S.btnGhost,flex:1}}>📋 Copiar</button>
         </div>
-        <button onClick={()=>window.open(`https://wa.me/${(client.phone||"").replace(/\D/g,"")}?text=${encodeURIComponent(reciboText)}`,"_blank")} style={{...S.btn,...S.btnWa,width:"100%",textAlign:"center"}}>📲 Enviar por WhatsApp</button>
+        <button onClick={()=>handleEmit("whatsapp")} style={{...S.btn,...S.btnWa,width:"100%",textAlign:"center"}}>📲 Enviar por WhatsApp</button>
       </div>
+    </div>
+  );
+}
+
+// ─── RECIBOS VIEW ─────────────────────────────────────────────────────────────────
+function RecibosView({ recibos, company, concepts, onDeleteRecibo, onCopyRecibo }) {
+  const now = new Date();
+  const [filterMonth,setFilterMonth] = useState(now.getMonth());
+  const [filterYear,setFilterYear] = useState(now.getFullYear());
+  const [showCopy,setShowCopy] = useState(null); // recibo a copiar
+  const [toMonth,setToMonth] = useState((now.getMonth()+1)%12);
+  const [toYear,setToYear] = useState(now.getMonth()===11?now.getFullYear()+1:now.getFullYear());
+
+  const filtered = recibos.filter(r=>r.month===filterMonth&&r.year===filterYear)
+    .sort((a,b)=>b.date?.localeCompare(a.date||"")||0);
+  const totalMes = filtered.reduce((s,r)=>s+(r.total||0),0);
+
+  const handleCopy = (recibo) => {
+    const newDate = `${toYear}-${String(toMonth+1).padStart(2,"0")}-${recibo.date.slice(8,10)}`;
+    const newRecibo = {
+      ...recibo,
+      id: uid(),
+      folio: `R-${Date.now().toString().slice(-6)}`,
+      date: newDate,
+      month: toMonth,
+      year: toYear,
+      items: recibo.items.map(i=>({...i,id:uid(),status:"pendiente",date:newDate})),
+    };
+    onCopyRecibo(newRecibo);
+    setShowCopy(null);
+    alert(`✓ Recibo copiado a ${MONTHS[toMonth]} ${toYear}`);
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <h2 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>📋 Historial de Recibos</h2>
+        <div style={{display:"flex",gap:8}}>
+          <select value={filterMonth} onChange={e=>setFilterMonth(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>
+            {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+          </select>
+          <select value={filterYear} onChange={e=>setFilterYear(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>
+            {[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Resumen mes */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:20}}>
+        {[
+          ["Total emitido",fmt(totalMes),"#6ee7b7"],
+          ["Recibos",filtered.length,"#93c5fd"],
+          ["Clientes",new Set(filtered.map(r=>r.clientId)).size,"#fde68a"],
+        ].map(([l,v,c])=>(
+          <div key={l} style={{...S.card,padding:"12px 16px"}}>
+            <div style={{fontWeight:800,fontSize:18,color:c}}>{v}</div>
+            <div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>{l} — {MONTHS[filterMonth]}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Lista de recibos */}
+      <div style={{...S.card,padding:0,overflow:"hidden"}}>
+        <div style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 120px 120px",padding:"8px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+          {["Folio","Cliente","Ítems","Total","Acciones"].map(h=>(
+            <div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
+          ))}
+        </div>
+        {filtered.length===0&&<div style={S.empty}>Sin recibos en {MONTHS[filterMonth]} {filterYear}</div>}
+        {filtered.map((r,idx)=>(
+          <div key={r.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 120px 120px",padding:"11px 14px",borderBottom:"1px solid rgba(255,255,255,0.03)",background:idx%2===0?"rgba(15,23,42,0.2)":"transparent",alignItems:"center"}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:12,color:"#6ee7b7"}}>{r.folio}</div>
+              <div style={{fontSize:10,color:"#475569"}}>{r.date}</div>
+            </div>
+            <div style={{fontSize:13,color:"#f1f5f9",fontWeight:600}}>{r.clientName}
+              {r.clientCuit&&<div style={{fontSize:10,color:"#475569"}}>{r.clientCuit}</div>}
+            </div>
+            <div style={{fontSize:11,color:"#94a3b8"}}>
+              {(r.items||[]).slice(0,2).map(i=>(
+                <div key={i.id}>{i.concept} — {i.description}</div>
+              ))}
+              {(r.items||[]).length>2&&<div style={{color:"#475569"}}>+{r.items.length-2} más</div>}
+            </div>
+            <div style={{fontWeight:800,color:"#6ee7b7",fontSize:14}}>{fmt(r.total)}</div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>{ generatePDF({name:r.clientName,cuit:r.clientCuit},company,r.items,r.folio); }} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",padding:"5px 10px",fontSize:11}}>📄</button>
+              <button onClick={()=>setShowCopy(r)} style={{...S.btn,...S.btnGhost,padding:"5px 10px",fontSize:11}}>📋 Copiar</button>
+              <button onClick={()=>{if(confirm("¿Eliminar recibo?"))onDeleteRecibo(r.id);}} style={{...S.iconBtn,color:"#fca5a5",fontSize:13}}>🗑</button>
+            </div>
+          </div>
+        ))}
+        {filtered.length>0&&(
+          <div style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 120px 120px",padding:"9px 14px",background:"rgba(15,23,42,0.6)",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
+            <span style={{gridColumn:"1/4",fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>TOTAL {MONTHS[filterMonth].toUpperCase()}</span>
+            <span style={{fontWeight:800,color:"#6ee7b7",fontSize:14}}>{fmt(totalMes)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Modal copiar recibo */}
+      {showCopy&&(
+        <div style={S.overlay}>
+          <div style={{...S.modal,maxWidth:420}}>
+            <div style={S.modalHead}><span style={S.modalTitle}>📋 Copiar recibo al otro mes</span><button onClick={()=>setShowCopy(null)} style={S.xBtn}>✕</button></div>
+            <div style={{background:"rgba(15,23,42,0.5)",borderRadius:8,padding:12,marginBottom:16}}>
+              <div style={{fontSize:12,color:"#94a3b8",marginBottom:4}}>Recibo: <strong style={{color:"#f1f5f9"}}>{showCopy.folio}</strong></div>
+              <div style={{fontSize:12,color:"#94a3b8",marginBottom:4}}>Cliente: <strong style={{color:"#f1f5f9"}}>{showCopy.clientName}</strong></div>
+              <div style={{fontSize:12,color:"#94a3b8"}}>Total: <strong style={{color:"#6ee7b7"}}>{fmt(showCopy.total)}</strong></div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+              <div style={S.field}><label style={S.lbl}>Mes destino</label>
+                <select value={toMonth} onChange={e=>setToMonth(Number(e.target.value))} style={S.inp}>
+                  {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+                </select></div>
+              <div style={S.field}><label style={S.lbl}>Año destino</label>
+                <select value={toYear} onChange={e=>setToYear(Number(e.target.value))} style={S.inp}>
+                  {[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}
+                </select></div>
+            </div>
+            <div style={{fontSize:12,color:"#64748b",marginBottom:16}}>Los ítems se copiarán como <strong style={{color:"#fca5a5"}}>pendientes</strong> en {MONTHS[toMonth]} {toYear}.</div>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>
+              <button onClick={()=>setShowCopy(null)} style={{...S.btn,...S.btnGhost}}>Cancelar</button>
+              <button onClick={()=>handleCopy(showCopy)} style={{...S.btn,...S.btnPrimary}}>Copiar → {MONTHS[toMonth]} {toYear}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -418,7 +566,7 @@ function ItemForm({ concepts, onAdd, onCancel }) {
 }
 
 // ─── CUENTA CORRIENTE ─────────────────────────────────────────────────────────────
-function CuentaCorriente({ client, concepts, company, onBack, onUpdate }) {
+function CuentaCorriente({ client, concepts, company, onBack, onUpdate, onSaveRecibo }) {
   const [addingItem,setAddingItem] = useState(false);
   const [showRecibo,setShowRecibo] = useState(false);
   const [showCopy,setShowCopy] = useState(false);
@@ -513,7 +661,7 @@ function CuentaCorriente({ client, concepts, company, onBack, onUpdate }) {
         )}
       </div>
 
-      {showRecibo&&<ReciboModal client={client} company={company} concepts={concepts} onClose={()=>setShowRecibo(false)}/>}
+      {showRecibo&&<ReciboModal client={client} company={company} concepts={concepts} onClose={()=>setShowRecibo(false)} onSaveRecibo={async r=>{if(onSaveRecibo)await onSaveRecibo(r);}}/>}
       {showCopy&&<CopyMonthModal client={client} onCopy={copyItems} onClose={()=>setShowCopy(false)}/>}
     </div>
   );
@@ -680,3 +828,254 @@ function ChartView({ clients, concepts }) {
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <h2 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>📊 Análisis de Ingresos</h2>
         <div style={{display:"flex",gap:8}}>
+          <select value={year} onChange={e=>setYear(Number(e.target.value))} style={{...S.inp,padding:"7px 12px",fontSize:13,width:"auto"}}>
+            {[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}
+          </select>
+          <button onClick={()=>setChartType("bar")} style={{...S.btn,...(chartType==="bar"?S.btnPrimary:S.btnGhost),padding:"7px 14px",fontSize:13}}>▐ Barras</button>
+          <button onClick={()=>setChartType("line")} style={{...S.btn,...(chartType==="line"?S.btnPrimary:S.btnGhost),padding:"7px 14px",fontSize:13}}>↗ Líneas</button>
+        </div>
+      </div>
+      <div style={{...S.card,marginBottom:20}}>
+        <div style={{fontSize:12,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:16,fontWeight:700}}>Ingresos cobrados {year}</div>
+        {!monthlyData.some(r=>r.Total>0)?<div style={S.empty}>Sin datos para {year}</div>:(
+          <ResponsiveContainer width="100%" height={280}>
+            {chartType==="bar"?(
+              <BarChart data={monthlyData} barSize={14}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
+                <XAxis dataKey="month" tick={{fill:"#64748b",fontSize:11}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fill:"#64748b",fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>v>=1000?`$${(v/1000).toFixed(0)}k`:`$${v}`}/>
+                <Tooltip content={<Tip/>}/><Legend wrapperStyle={{fontSize:11,paddingTop:8}}/>
+                {active.map((c,i)=><Bar key={c} dataKey={c} stackId="a" fill={getColor(c,concepts)} radius={i===active.length-1?[4,4,0,0]:[0,0,0,0]}/>)}
+              </BarChart>
+            ):(
+              <LineChart data={monthlyData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
+                <XAxis dataKey="month" tick={{fill:"#64748b",fontSize:11}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fill:"#64748b",fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>v>=1000?`$${(v/1000).toFixed(0)}k`:`$${v}`}/>
+                <Tooltip content={<Tip/>}/><Legend wrapperStyle={{fontSize:11}}/>
+                {active.map(c=><Line key={c} type="monotone" dataKey={c} stroke={getColor(c,concepts)} strokeWidth={2} dot={{r:3}}/>)}
+              </LineChart>
+            )}
+          </ResponsiveContainer>
+        )}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:12}}>
+        {totals.map(({concept,color,total})=>(
+          <div key={concept} style={{...S.card,padding:"14px 16px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <span style={{width:9,height:9,borderRadius:"50%",background:color,flexShrink:0}}/>
+              <span style={{fontSize:12,color:"#94a3b8"}}>{concept}</span>
+            </div>
+            <div style={{fontWeight:800,fontSize:17,color}}>{fmt(total)}</div>
+            <div style={{fontSize:11,color:"#475569",marginTop:3}}>{grand>0?((total/grand)*100).toFixed(1):0}% del total</div>
+            <div style={{height:3,background:"rgba(255,255,255,0.05)",borderRadius:99,marginTop:8}}>
+              <div style={{height:3,borderRadius:99,background:color,width:`${grand>0?(total/grand)*100:0}%`}}/>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────────
+export default function App() {
+  const [recibos,setRecibos] = useState([]);
+  const [user,setUser] = useState(null);
+  const [authLoading,setAuthLoading] = useState(true);
+  const [clients,setClients] = useState([]);
+  const [dbLoading,setDbLoading] = useState(false);
+  const [company,setCompany] = useState(DEFAULT_COMPANY);
+  const [concepts,setConcepts] = useState(DEFAULT_CONCEPTS);
+  const [view,setView] = useState("list");
+  const [selected,setSelected] = useState(null);
+  const [search,setSearch] = useState("");
+  const [sortBy,setSortBy] = useState("name");
+  const [showCompany,setShowCompany] = useState(false);
+  const [showConcepts,setShowConcepts] = useState(false);
+
+  useEffect(()=>{ const u=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false);}); return u; },[]);
+  useEffect(()=>{
+    if(!user)return;
+    setDbLoading(true);
+    const u1=onSnapshot(collection(db,"users",user.uid,"clients"),s=>{setClients(s.docs.map(d=>({id:d.id,...d.data()})));setDbLoading(false);});
+    const u2=onSnapshot(doc(db,"users",user.uid,"settings","company"),s=>{if(s.exists())setCompany(s.data());});
+    const u3=onSnapshot(doc(db,"users",user.uid,"settings","concepts"),s=>{if(s.exists()&&s.data().list)setConcepts(s.data().list);});
+    const u4=onSnapshot(collection(db,"users",user.uid,"recibos"),s=>{setRecibos(s.docs.map(d=>({id:d.id,...d.data()})));});
+    return()=>{u1();u2();u3();u4();};
+  },[user]);
+
+  const login=async()=>{setAuthLoading(true);try{await signInWithPopup(auth,new GoogleAuthProvider());}catch{setAuthLoading(false);}};
+  const logout=async()=>{await signOut(auth);setClients([]);setView("list");setSelected(null);};
+  const saveClient=async c=>await setDoc(doc(db,"users",user.uid,"clients",c.id),c);
+  const addClient=async d=>{const c={...d,id:uid(),items:[]};await saveClient(c);setView("list");};
+  const updateClient=async u=>{await saveClient(u);setSelected(u);};
+  const deleteClient=async id=>{if(!confirm("¿Eliminar cliente?"))return;await deleteDoc(doc(db,"users",user.uid,"clients",id));setView("list");};
+  const saveRecibo=async r=>await setDoc(doc(db,"users",user.uid,"recibos",r.id),r);
+  const deleteRecibo=async id=>await deleteDoc(doc(db,"users",user.uid,"recibos",id));
+  const copyRecibo=async r=>await saveRecibo(r);
+  const saveCompany=async p=>{setCompany(p);await setDoc(doc(db,"users",user.uid,"settings","company"),p);setShowCompany(false);};
+  const saveConcepts=async l=>{setConcepts(l);await setDoc(doc(db,"users",user.uid,"settings","concepts"),{list:l});setShowConcepts(false);};
+
+  if(authLoading)return<div style={{minHeight:"100vh",background:"#080d1a",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#6ee7b7",fontSize:40}}>◈</span></div>;
+  if(!user)return<LoginScreen onLogin={login} loading={authLoading}/>;
+
+  const sorted=[...clients].filter(c=>c.name?.toLowerCase().includes(search.toLowerCase())||(c.cuit||"").includes(search)).sort((a,b)=>{
+    if(sortBy==="name")return(a.name||"").localeCompare(b.name||"");
+    if(sortBy==="pending")return pendingItems(b.items)-pendingItems(a.items);
+    if(sortBy==="total")return totalItems(b.items)-totalItems(a.items);
+    return 0;
+  });
+
+  const allPaid=clients.reduce((s,c)=>s+paidItems(c.items),0);
+  const allPend=clients.reduce((s,c)=>s+pendingItems(c.items),0);
+
+  const NAV = [
+    ["👥","Clientes","list"],
+    ["🧾","Recibos","recibos"],
+    ["⏳","Pendientes","pendientes"],
+    ["✅","Cobrado","cobrado"],
+    ["📊","Análisis","chart"],
+  ];
+
+  return (
+    <div style={S.root}>
+      <style>{`*{box-sizing:border-box;}::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:#334155;border-radius:99px;}input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.5);}`}</style>
+      <nav style={S.nav}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+          <span style={{fontSize:22,color:"#6ee7b7"}}>◈</span>
+          <div><div style={{fontWeight:800,fontSize:14,color:"#f1f5f9"}}>ClientesPro</div><div style={{fontSize:9,color:"#475569",textTransform:"uppercase",letterSpacing:"0.1em"}}>v6.0</div></div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,padding:"8px 10px",background:"rgba(110,231,183,0.06)",borderRadius:9,border:"1px solid rgba(110,231,183,0.1)"}}>
+          <img src={user.photoURL} alt="" style={{width:24,height:24,borderRadius:"50%"}}/>
+          <div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:700,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.displayName}</div></div>
+        </div>
+        {NAV.map(([ic,lb,v])=>(
+          <button key={v} onClick={()=>setView(v)} style={{...S.navBtn,...((view===v||view==="cuenta"&&v==="list")?S.navActive:{})}}>
+            <span>{ic}</span><span>{lb}</span>
+            {v==="pendientes"&&allPend>0&&<span style={{marginLeft:"auto",fontSize:10,color:"#fca5a5",fontWeight:700}}>{fmt(allPend)}</span>}
+          </button>
+        ))}
+        <div style={{margin:"14px 0",borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:14}}>
+          {[["Cobrado",fmt(allPaid),"#6ee7b7"],["Pendiente",fmt(allPend),"#fca5a5"],["Clientes",clients.length,"#93c5fd"]].map(([l,v,c])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:11}}>
+              <span style={{color:"#475569"}}>{l}</span><span style={{fontWeight:700,color:c}}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{marginTop:"auto",display:"flex",flexDirection:"column",gap:6}}>
+          <button onClick={()=>setShowCompany(true)} style={{...S.btn,...S.btnGhost,fontSize:11,padding:"6px",width:"100%"}}>🏢 Datos de la empresa</button>
+          <button onClick={()=>setShowConcepts(true)} style={{...S.btn,...S.btnGhost,fontSize:11,padding:"6px",width:"100%"}}>🏷 Conceptos</button>
+          <button onClick={()=>{const rows=[["Cliente","CUIT","Concepto","Descripción","Monto","Fecha","Estado"]];clients.forEach(c=>(c.items||[]).forEach(i=>rows.push([c.name,c.cuit||"",i.concept,i.description,i.amount,i.date,i.status])));const csv=rows.map(r=>r.map(v=>`"${v}"`).join(",")).join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"}));a.download="clientes_pro.csv";a.click();}} style={{...S.btn,...S.btnGhost,fontSize:11,padding:"6px",width:"100%"}}>📥 Exportar CSV</button>
+          <button onClick={logout} style={{...S.btn,background:"rgba(252,165,165,0.08)",color:"#fca5a5",border:"1px solid rgba(252,165,165,0.15)",fontSize:11,padding:"6px",width:"100%"}}>↩ Salir</button>
+        </div>
+      </nav>
+
+      <div style={S.main}>
+        {dbLoading&&<div style={{textAlign:"center",padding:40,color:"#475569"}}>Cargando...</div>}
+
+        {/* LISTA */}
+        {!dbLoading&&view==="list"&&(
+          <>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:10}}>
+              <h1 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>Clientes <span style={{fontSize:13,color:"#475569",fontWeight:400}}>({clients.length})</span></h1>
+              <button onClick={()=>setView("add")} style={{...S.btn,...S.btnPrimary}}>+ Nuevo cliente</button>
+            </div>
+            <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:180,display:"flex",alignItems:"center",background:"rgba(30,41,59,0.6)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,padding:"0 12px"}}>
+                <span style={{opacity:0.3,marginRight:8,fontSize:12}}>🔍</span>
+                <input placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)} style={{flex:1,background:"none",border:"none",outline:"none",color:"#e2e8f0",fontSize:13,padding:"8px 0"}}/>
+              </div>
+              <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...S.inp,padding:"7px 10px",fontSize:12,width:"auto"}}>
+                <option value="name">A–Z</option>
+                <option value="pending">Mayor deuda</option>
+                <option value="total">Mayor facturado</option>
+              </select>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 110px 110px 100px 70px",padding:"7px 14px",background:"rgba(15,23,42,0.8)",borderRadius:"9px 9px 0 0",border:"1px solid rgba(255,255,255,0.06)"}}>
+              {["Cliente","CUIT","Condición","Total","Cobrado","Pendiente",""].map(h=>(
+                <div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
+              ))}
+            </div>
+            <div style={{border:"1px solid rgba(255,255,255,0.06)",borderTop:"none",borderRadius:"0 0 9px 9px",overflow:"hidden"}}>
+              {sorted.length===0&&<div style={S.empty}>{clients.length===0?"¡Agregá tu primer cliente!":"Sin resultados."}</div>}
+              {sorted.map((c,idx)=>(
+                <div key={c.id} onClick={()=>{setSelected(c);setView("cuenta");}} style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 110px 110px 100px 70px",padding:"11px 14px",borderBottom:"1px solid rgba(255,255,255,0.04)",background:idx%2===0?"rgba(15,23,42,0.3)":"rgba(20,30,50,0.4)",cursor:"pointer",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:13,color:"#f1f5f9"}}>{c.name}</div>
+                    {c.notes&&<div style={{fontSize:10,color:"#334155",marginTop:1}}>{c.notes.slice(0,35)}{c.notes.length>35?"...":""}</div>}
+                  </div>
+                  <div style={{fontSize:11,color:"#64748b"}}>{c.cuit||"—"}</div>
+                  <div>{c.condicionFiscal?<span style={{...S.ctag,background:"rgba(147,197,253,0.1)",color:"#93c5fd",fontSize:10}}>{c.condicionFiscal}</span>:<span style={{color:"#334155",fontSize:11}}>—</span>}</div>
+                  <div style={{fontWeight:700,color:"#93c5fd",fontSize:12}}>{fmt(totalItems(c.items))}</div>
+                  <div style={{fontWeight:700,color:"#6ee7b7",fontSize:12}}>{fmt(paidItems(c.items))}</div>
+                  <div style={{fontWeight:700,color:pendingItems(c.items)>0?"#fca5a5":"#6ee7b7",fontSize:12}}>{fmt(pendingItems(c.items))}</div>
+                  <div style={{display:"flex",gap:3}} onClick={e=>e.stopPropagation()}>
+                    <button onClick={()=>{setSelected(c);setView("edit");}} style={{...S.iconBtn,color:"#fde68a",fontSize:12}}>✏️</button>
+                    <button onClick={()=>deleteClient(c.id)} style={{...S.iconBtn,color:"#fca5a5",fontSize:12}}>🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {clients.length>0&&(
+              <div style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 110px 110px 100px 70px",padding:"9px 14px",background:"rgba(15,23,42,0.8)",borderRadius:8,marginTop:6,border:"1px solid rgba(255,255,255,0.06)"}}>
+                <div style={{gridColumn:"1/4",fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>TOTALES</div>
+                <div style={{fontWeight:800,color:"#93c5fd",fontSize:12}}>{fmt(clients.reduce((s,c)=>s+totalItems(c.items),0))}</div>
+                <div style={{fontWeight:800,color:"#6ee7b7",fontSize:12}}>{fmt(allPaid)}</div>
+                <div style={{fontWeight:800,color:"#fca5a5",fontSize:12}}>{fmt(allPend)}</div>
+              </div>
+            )}
+          </>
+        )}
+
+        {!dbLoading&&view==="add"&&<ClientForm onSave={addClient} onCancel={()=>setView("list")}/>}
+        {!dbLoading&&view==="edit"&&selected&&<ClientForm initial={selected} onSave={async d=>{await updateClient({...selected,...d});setView("list");}} onCancel={()=>setView("list")}/>}
+        {!dbLoading&&view==="cuenta"&&selected&&(
+          <CuentaCorriente
+            client={clients.find(c=>c.id===selected?.id)||selected}
+            concepts={concepts} company={company}
+            onBack={()=>setView("list")}
+            onUpdate={updateClient}
+            onSaveRecibo={saveRecibo}
+          />
+        )}
+        {!dbLoading&&view==="recibos"&&<RecibosView recibos={recibos} company={company} concepts={concepts} onDeleteRecibo={deleteRecibo} onCopyRecibo={copyRecibo}/>}
+        {!dbLoading&&view==="pendientes"&&<MovimientosView clients={clients} status="pendiente" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
+        {!dbLoading&&view==="cobrado"&&<MovimientosView clients={clients} status="pagado" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
+        {!dbLoading&&view==="chart"&&<ChartView clients={clients} concepts={concepts}/>}
+      </div>
+
+      {showCompany&&<CompanyModal company={company} onSave={saveCompany} onClose={()=>setShowCompany(false)}/>}
+      {showConcepts&&<ConceptsModal concepts={concepts} onSave={saveConcepts} onClose={()=>setShowConcepts(false)}/>}
+    </div>
+  );
+}
+
+const S = {
+  root:{display:"flex",minHeight:"100vh",background:"#080d1a",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:"#e2e8f0"},
+  nav:{width:205,flexShrink:0,background:"rgba(10,18,35,0.98)",borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",flexDirection:"column",padding:"16px 12px",position:"sticky",top:0,height:"100vh",overflowY:"auto"},
+  navBtn:{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:8,border:"none",background:"none",color:"#475569",fontSize:13,fontWeight:500,cursor:"pointer",textAlign:"left",width:"100%"},
+  navActive:{background:"rgba(110,231,183,0.08)",color:"#6ee7b7",fontWeight:700},
+  main:{flex:1,padding:"24px 28px",overflowY:"auto",minHeight:"100vh"},
+  card:{background:"rgba(20,30,50,0.7)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"16px"},
+  field:{display:"flex",flexDirection:"column",gap:5},
+  lbl:{fontSize:10,color:"#475569",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em"},
+  inp:{background:"rgba(8,13,26,0.7)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:7,padding:"8px 12px",color:"#f1f5f9",fontSize:13,outline:"none"},
+  btn:{border:"none",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:600,cursor:"pointer"},
+  btnPrimary:{background:"linear-gradient(135deg,#6ee7b7,#3b82f6)",color:"#050a14"},
+  btnGhost:{background:"rgba(255,255,255,0.05)",color:"#64748b",border:"1px solid rgba(255,255,255,0.08)"},
+  btnWa:{background:"linear-gradient(135deg,#25d366,#128c7e)",color:"#fff"},
+  iconBtn:{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"4px 6px",borderRadius:6},
+  badge:{border:"none",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:600,cursor:"pointer"},
+  bPaid:{background:"rgba(110,231,183,0.1)",color:"#6ee7b7"},
+  bPend:{background:"rgba(252,165,165,0.1)",color:"#fca5a5"},
+  ctag:{display:"inline-flex",alignItems:"center",padding:"2px 8px",borderRadius:20,fontSize:11,fontWeight:600},
+  empty:{padding:36,textAlign:"center",color:"#334155",fontSize:13},
+  overlay:{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16},
+  modal:{background:"#0e1829",border:"1px solid rgba(255,255,255,0.09)",borderRadius:16,padding:24,width:"100%",maxHeight:"92vh",overflowY:"auto"},
+  modalHead:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8},
+  modalTitle:{fontWeight:800,fontSize:16,color:"#f1f5f9"},
+  xBtn:{background:"none",border:"none",color:"#475569",fontSize:17,cursor:"pointer"},
+  checkRow:{display:"flex",alignItems:"center",gap:8,padding:"6px 2px",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer"},
+  ticketPre:{background:"#050a14",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9,padding:14,fontSize:11,color:"#94a3b8",lineHeight:1.9,whiteSpace:"pre-wrap",fontFamily:"monospace",margin:0},
+};
