@@ -35,7 +35,7 @@ const formatCuit = v => { const n=v.replace(/\D/g,"").slice(0,11); if(n.length<=
 const getColor = (concept, concepts) => CONCEPT_COLORS[concepts.indexOf(concept) % CONCEPT_COLORS.length];
 
 // ─── PDF RECEIPT ──────────────────────────────────────────────────────────────────
-function generatePDF(client, company, items, folio) {
+function generatePDF(client, company, items, folio, status="pendiente") {
   const total = items.reduce((s,i)=>s+(i.amount||0),0);
   const nowStr = new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"long",year:"numeric"});
   const byConceptRows = items.map(i=>`
@@ -216,10 +216,8 @@ function generatePDF(client, company, items, folio) {
   win.document.write(html);
   win.document.close();
   win.focus();
-  setTimeout(()=>{ win.print(); }, 500);
-}
-
-// ─── LOGIN ───────────────────────────────────────────────────────────────────────
+  // No auto-print: el usuario decide si imprime desde el navegador
+} ───────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin, loading }) {
   return (
     <div style={{minHeight:"100vh",background:"#080d1a",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
@@ -539,13 +537,15 @@ function ReciboEditor({ recibo, clients, concepts, company, onSave, onClose }) {
   const [ef, setEf] = useState({concept:concepts[0]||"Honorarios",description:"",amount:""});
   const [clientSearch, setClientSearch] = useState("");
 
+  const [status, setStatus] = useState(recibo?.status||"pendiente");
+
   const client = clients.find(c=>c.id===clientId);
   const total = items.reduce((s,i)=>s+(i.amount||0),0);
   const folio = recibo?.folio||`R-${Date.now().toString().slice(-6)}`;
 
   const addItem = () => {
     if(!ef.description||!ef.amount) return alert("Completá descripción y monto.");
-    setItems(p=>[...p,{...ef,amount:parseFloat(ef.amount),id:uid(),status:"pendiente",date}]);
+    setItems(p=>[...p,{...ef,amount:parseFloat(ef.amount),id:uid(),status,date}]);
     setEf({concept:concepts[0]||"Honorarios",description:"",amount:""});
     setAddingItem(false);
   };
@@ -557,6 +557,7 @@ function ReciboEditor({ recibo, clients, concepts, company, onSave, onClose }) {
     if(!clientId) return alert("Seleccioná un cliente.");
     if(!items.length) return alert("Agregá al menos un ítem.");
     const d = new Date(date);
+    const finalItems = items.map(i=>({...i,status}));
     const r = {
       id: recibo?.id||uid(),
       folio,
@@ -566,14 +567,14 @@ function ReciboEditor({ recibo, clients, concepts, company, onSave, onClose }) {
       clientId: client.id,
       clientName: client.name,
       clientCuit: client.cuit||"",
-      items: items.map(i=>({...i,status:"pendiente"})),
+      items: finalItems,
       total,
-      status: "pendiente",
+      status,
     };
-    await onSave(r);
-    if(action==="pdf") generatePDF(client,company,items,folio);
+    await onSave(r, client, finalItems);
+    if(action==="pdf") generatePDF(client,company,finalItems,folio,status);
     else if(action==="whatsapp") {
-      const txt = `🧾 *RECIBO*\n${company?.name?`🏢 ${company.name}\n`:""}N° ${folio} | ${date}\nCliente: ${client.name}\n${items.map(i=>`• ${i.concept} — ${i.description}: ${fmt(i.amount)}`).join("\n")}\n💰 TOTAL: ${fmt(total)}`;
+      const txt = `🧾 *RECIBO*\n${company?.name?`🏢 ${company.name}\n`:""}N° ${folio} | ${date}\nCliente: ${client.name}\n${finalItems.map(i=>`• ${i.concept} — ${i.description}: ${fmt(i.amount)}`).join("\n")}\n💰 TOTAL: ${fmt(total)}\n${status==="pendiente"?"⏳ PENDIENTE DE COBRO":"✅ COBRADO"}`;
       window.open(`https://wa.me/${(client.phone||"").replace(/\D/g,"")}?text=${encodeURIComponent(txt)}`,"_blank");
     }
   };
@@ -618,10 +619,23 @@ function ReciboEditor({ recibo, clients, concepts, company, onSave, onClose }) {
           )}
         </div>
 
-        {/* Fecha */}
-        <div style={{...S.field,marginBottom:14}}>
-          <label style={S.lbl}>Fecha del recibo</label>
-          <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...S.inp,width:"auto",maxWidth:180}}/>
+        {/* Fecha y estado */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <div style={S.field}>
+            <label style={S.lbl}>Fecha del recibo</label>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={S.inp}/>
+          </div>
+          <div style={S.field}>
+            <label style={S.lbl}>Estado</label>
+            <div style={{display:"flex",gap:8,marginTop:2}}>
+              <button onClick={()=>setStatus("pendiente")} style={{...S.btn,flex:1,padding:"8px",fontSize:12,...(status==="pendiente"?{background:"rgba(252,165,165,0.2)",color:"#fca5a5",border:"1px solid rgba(252,165,165,0.4)"}:{...S.btnGhost})}}>
+                ⏳ Pendiente
+              </button>
+              <button onClick={()=>setStatus("pagado")} style={{...S.btn,flex:1,padding:"8px",fontSize:12,...(status==="pagado"?{background:"rgba(110,231,183,0.2)",color:"#6ee7b7",border:"1px solid rgba(110,231,183,0.4)"}:{...S.btnGhost})}}>
+                ✓ Cobrado
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Ítems */}
@@ -637,7 +651,7 @@ function ReciboEditor({ recibo, clients, concepts, company, onSave, onClose }) {
                 <select value={ef.concept} onChange={e=>setEf({...ef,concept:e.target.value})} style={S.inp}>{concepts.map(c=><option key={c}>{c}</option>)}</select></div>
               <div style={S.field}><label style={S.lbl}>Monto ($)</label>
                 <input type="number" value={ef.amount} onChange={e=>setEf({...ef,amount:e.target.value})} placeholder="0.00" style={S.inp}/></div>
-              <div style={{...S.field,gridColumn:"1/-1"}}><label style={S.lbl}>Descripción</label>
+              <div style={{...S.field,gridColumn:"1/-1"}}><label style={S.lbl}>Descripción / Observaciones</label>
                 <input value={ef.description} onChange={e=>setEf({...ef,description:e.target.value})} onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="Ej. Honorarios enero 2026" style={S.inp}/></div>
             </div>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
@@ -654,7 +668,7 @@ function ReciboEditor({ recibo, clients, concepts, company, onSave, onClose }) {
               <select value={item.concept} onChange={e=>updateItem(item.id,"concept",e.target.value)} style={{...S.inp,fontSize:11,padding:"4px 6px"}}>
                 {concepts.map(c=><option key={c}>{c}</option>)}
               </select>
-              <input value={item.description} onChange={e=>updateItem(item.id,"description",e.target.value)} style={{...S.inp,fontSize:12,padding:"5px 8px"}}/>
+              <input value={item.description} onChange={e=>updateItem(item.id,"description",e.target.value)} placeholder="Observaciones..." style={{...S.inp,fontSize:12,padding:"5px 8px"}}/>
               <input type="number" value={item.amount} onChange={e=>updateItem(item.id,"amount",e.target.value)} style={{...S.inp,fontSize:12,padding:"5px 8px",textAlign:"right"}}/>
               <button onClick={()=>removeItem(item.id)} style={{...S.iconBtn,color:"#fca5a5",fontSize:13}}>🗑</button>
             </div>
@@ -678,7 +692,7 @@ function ReciboEditor({ recibo, clients, concepts, company, onSave, onClose }) {
 }
 
 // ─── RECIBOS VIEW ─────────────────────────────────────────────────────────────────
-function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSaveRecibo }) {
+function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSaveRecibo, onUpdateClient }) {
   const now = new Date();
   const [filterMonth,setFilterMonth] = useState(now.getMonth());
   const [filterYear,setFilterYear] = useState(now.getFullYear());
@@ -719,27 +733,50 @@ function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSa
       rows: filtered.map(r=>[r.folio,r.date,r.clientName,r.clientCuit||"—",(r.items||[]).map(i=>`${i.concept}: ${i.description}`).join(" / "),fmt(r.total)]),
       totals:["","","","","TOTAL",fmt(totalMes)],
     });
+  const [selected, setSelected] = useState([]);
+  const toggleSelect = id => setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
+  const toggleAll = () => setSelected(selected.length===filtered.length&&filtered.length>0?[]:filtered.map(r=>r.id));
+  const selectedRecibos = filtered.filter(r=>selected.includes(r.id));
+  const activeSet = selectedRecibos.length>0 ? selectedRecibos : filtered;
+
+  const handlePrintSelected = () => {
+    printList({
+      title:`Recibos${selectedRecibos.length>0?` (${selectedRecibos.length} sel.)`:""} — ${MONTHS[filterMonth]} ${filterYear}`,
+      company,
+      headers:["Folio","Fecha","Cliente","CUIT","Detalle","Total","Estado"],
+      rows: activeSet.map(r=>[r.folio,r.date,r.clientName,r.clientCuit||"—",(r.items||[]).map(i=>`${i.concept}${i.description?`: ${i.description}`:""}`).join(" / "),fmt(r.total),r.status==="pagado"?"Cobrado":"Pendiente"]),
+      totals:["","","","","TOTAL",fmt(activeSet.reduce((s,r)=>s+(r.total||0),0)),""],
+    });
+  };
+
+  const handleCopyText = () => {
+    const text = activeSet.map(r=>
+      `🧾 ${r.folio} | ${r.date}\n👤 ${r.clientName}${r.clientCuit?` · CUIT ${r.clientCuit}`:""}\n`+
+      (r.items||[]).map(i=>`   • ${i.concept}${i.description?` — ${i.description}`:""}: ${fmt(i.amount)}`).join("\n")+
+      `\n💰 TOTAL: ${fmt(r.total)} · ${r.status==="pagado"?"✓ Cobrado":"⏳ Pendiente"}`
+    ).join("\n\n━━━━━━━━━━━━━━\n\n");
+    navigator.clipboard.writeText(text);
+    alert(`✓ ${activeSet.length} recibo${activeSet.length!==1?"s":""} copiado${activeSet.length!==1?"s":""} al portapapeles`);
   };
 
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
         <h2 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>🧾 Recibos</h2>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <select value={filterMonth} onChange={e=>setFilterMonth(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>
+          <select value={filterMonth} onChange={e=>{setFilterMonth(Number(e.target.value));setSelected([]);}} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>
             {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
           </select>
-          <select value={filterYear} onChange={e=>setFilterYear(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>
+          <select value={filterYear} onChange={e=>{setFilterYear(Number(e.target.value));setSelected([]);}} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>
             {[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}
           </select>
-          <button onClick={handlePrint} style={{...S.btn,...S.btnGhost,padding:"6px 12px",fontSize:12}}>🖨 Imprimir</button>
-          {filtered.length>0&&<button onClick={()=>setShowCopyAll(true)} style={{...S.btn,...S.btnGhost,padding:"6px 12px",fontSize:12}}>📋 Copiar todos</button>}
+          {filtered.length>0&&<button onClick={()=>setShowCopyAll(true)} style={{...S.btn,...S.btnGhost,padding:"6px 12px",fontSize:12}}>📋 Copiar mes →</button>}
           <button onClick={()=>{setEditingRecibo(null);setShowEditor(true);}} style={{...S.btn,...S.btnPrimary}}>+ Nuevo Recibo</button>
         </div>
       </div>
 
       {/* Resumen */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:20}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:12}}>
         {[["Total emitido",fmt(totalMes),"#6ee7b7"],["Recibos",filtered.length,"#93c5fd"],["Clientes",new Set(filtered.map(r=>r.clientId)).size,"#fde68a"]].map(([l,v,c])=>(
           <div key={l} style={{...S.card,padding:"12px 16px"}}>
             <div style={{fontWeight:800,fontSize:18,color:c}}>{v}</div>
@@ -748,33 +785,70 @@ function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSa
         ))}
       </div>
 
-      {/* Tabla */}
+      {/* Barra de selección y acciones masivas */}
+      {filtered.length>0&&(
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",background:"rgba(30,41,59,0.8)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,marginBottom:10,flexWrap:"wrap"}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}>
+            <input type="checkbox" checked={selected.length===filtered.length&&filtered.length>0} onChange={toggleAll} style={{accentColor:"#6ee7b7",width:15,height:15}}/>
+            <span style={{fontSize:12,color:"#94a3b8"}}>
+              {selected.length===0?"Seleccionar todos":
+               selected.length===filtered.length?"✓ Todos":
+               `${selected.length} de ${filtered.length}`}
+            </span>
+            {selected.length>0&&<span style={{fontSize:12,color:"#6ee7b7",fontWeight:700}}>{fmt(selectedRecibos.reduce((s,r)=>s+(r.total||0),0))}</span>}
+          </label>
+          <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button onClick={handlePrintSelected} style={{...S.btn,...S.btnGhost,padding:"6px 11px",fontSize:12}}>
+              🖨 {selected.length>0?`Imprimir (${selected.length})`:"Imprimir todos"}
+            </button>
+            <button onClick={handleCopyText} style={{...S.btn,...S.btnGhost,padding:"6px 11px",fontSize:12}}>
+              📋 {selected.length>0?`Copiar (${selected.length})`:"Copiar todos"}
+            </button>
+            {selected.length>0&&(
+              <button onClick={()=>{selectedRecibos.forEach(r=>generatePDF({name:r.clientName,cuit:r.clientCuit},company,r.items,r.folio,r.status));}} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",padding:"6px 11px",fontSize:12}}>
+                📄 PDF ({selected.length})
+              </button>
+            )}
+            {selected.length>0&&<button onClick={()=>setSelected([])} style={{...S.iconBtn,color:"#64748b",fontSize:12}}>✕</button>}
+          </div>
+        </div>
+      )}
+
+      {/* Tabla con checkboxes */}
       <div style={{...S.card,padding:0,overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 110px 180px",padding:"8px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+        <div style={{display:"grid",gridTemplateColumns:"36px 95px 1fr 1fr 110px 175px",padding:"8px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)",alignItems:"center"}}>
+          <input type="checkbox" checked={selected.length===filtered.length&&filtered.length>0} onChange={toggleAll} style={{accentColor:"#6ee7b7",width:14,height:14,cursor:"pointer"}}/>
           {["Folio","Cliente","Ítems","Total","Acciones"].map(h=>(
             <div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
           ))}
         </div>
         {filtered.length===0&&<div style={S.empty}>Sin recibos en {MONTHS[filterMonth]} {filterYear}<br/><span style={{fontSize:12,color:"#334155"}}>Creá uno con "+ Nuevo Recibo"</span></div>}
         {filtered.map((r,idx)=>(
-          <div key={r.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 110px 180px",padding:"11px 14px",borderBottom:"1px solid rgba(255,255,255,0.03)",background:idx%2===0?"rgba(15,23,42,0.2)":"transparent",alignItems:"center"}}>
-            <div><div style={{fontWeight:700,fontSize:12,color:"#6ee7b7"}}>{r.folio}</div><div style={{fontSize:10,color:"#475569"}}>{r.date}</div><span style={{fontSize:10,fontWeight:600,color:r.status==="pendiente"?"#fca5a5":"#6ee7b7"}}>{r.status==="pendiente"?"⏳ Pendiente":"✓ Cobrado"}</span></div>
+          <div key={r.id} style={{display:"grid",gridTemplateColumns:"36px 95px 1fr 1fr 110px 175px",padding:"10px 14px",borderBottom:"1px solid rgba(255,255,255,0.03)",background:selected.includes(r.id)?"rgba(110,231,183,0.06)":idx%2===0?"rgba(15,23,42,0.2)":"transparent",alignItems:"center",transition:"background 0.15s"}}>
+            <input type="checkbox" checked={selected.includes(r.id)} onChange={()=>toggleSelect(r.id)} style={{accentColor:"#6ee7b7",width:14,height:14,cursor:"pointer"}}/>
+            <div>
+              <div style={{fontWeight:700,fontSize:12,color:"#6ee7b7"}}>{r.folio}</div>
+              <div style={{fontSize:10,color:"#475569"}}>{r.date}</div>
+              <button onClick={async()=>await onSaveRecibo({...r,status:r.status==="pendiente"?"pagado":"pendiente"})} style={{...S.badge,...(r.status==="pendiente"?S.bPend:S.bPaid),fontSize:10,marginTop:3,cursor:"pointer"}}>
+                {r.status==="pendiente"?"⏳ Pendiente":"✓ Cobrado"}
+              </button>
+            </div>
             <div style={{fontSize:13,color:"#f1f5f9",fontWeight:600}}>{r.clientName}{r.clientCuit&&<div style={{fontSize:10,color:"#475569"}}>{r.clientCuit}</div>}</div>
             <div style={{fontSize:11,color:"#94a3b8"}}>
-              {(r.items||[]).slice(0,2).map(i=>(<div key={i.id}>{i.concept} — {i.description}</div>))}
+              {(r.items||[]).slice(0,2).map(i=>(<div key={i.id}>{i.concept}{i.description?` — ${i.description}`:""}</div>))}
               {(r.items||[]).length>2&&<div style={{color:"#475569"}}>+{r.items.length-2} más</div>}
             </div>
             <div style={{fontWeight:800,color:"#6ee7b7",fontSize:14}}>{fmt(r.total)}</div>
             <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-              <button onClick={()=>generatePDF({name:r.clientName,cuit:r.clientCuit},company,r.items,r.folio)} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",padding:"4px 8px",fontSize:11}}>📄</button>
+              <button onClick={()=>generatePDF({name:r.clientName,cuit:r.clientCuit},company,r.items,r.folio,r.status)} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",padding:"4px 8px",fontSize:11}}>📄</button>
               <button onClick={()=>{setEditingRecibo(r);setShowEditor(true);}} style={{...S.btn,...S.btnGhost,padding:"4px 8px",fontSize:11}}>✏️</button>
               <button onClick={()=>{if(confirm("¿Eliminar?"))onDeleteRecibo(r.id);}} style={{...S.iconBtn,color:"#fca5a5",fontSize:13}}>🗑</button>
             </div>
           </div>
         ))}
         {filtered.length>0&&(
-          <div style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 110px 180px",padding:"9px 14px",background:"rgba(15,23,42,0.6)",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
-            <span style={{gridColumn:"1/4",fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>TOTAL {MONTHS[filterMonth].toUpperCase()}</span>
+          <div style={{display:"grid",gridTemplateColumns:"36px 95px 1fr 1fr 110px 175px",padding:"9px 14px",background:"rgba(15,23,42,0.6)",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
+            <span style={{gridColumn:"1/5",fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>TOTAL {MONTHS[filterMonth].toUpperCase()}</span>
             <span style={{fontWeight:800,color:"#6ee7b7",fontSize:14}}>{fmt(totalMes)}</span>
           </div>
         )}
@@ -787,18 +861,29 @@ function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSa
           clients={clients}
           concepts={concepts}
           company={company}
-          onSave={async r=>{await onSaveRecibo(r);setShowEditor(false);setEditingRecibo(null);}}
+          onSave={async (r, client, finalItems)=>{
+            await onSaveRecibo(r);
+            if(onUpdateClient && client) {
+              const existingClient = clients.find(c=>c.id===r.clientId);
+              if(existingClient) {
+                const existingIds = (existingClient.items||[]).map(i=>i.id);
+                const newItems = finalItems.filter(i=>!existingIds.includes(i.id));
+                if(newItems.length>0) await onUpdateClient({...existingClient,items:[...(existingClient.items||[]),...newItems]});
+              }
+            }
+            setShowEditor(false);setEditingRecibo(null);
+          }}
           onClose={()=>{setShowEditor(false);setEditingRecibo(null);}}
         />
       )}
 
-      {/* Copiar todos al mes siguiente */}
+      {/* Copiar mes completo */}
       {showCopyAll&&(
         <div style={S.overlay}>
           <div style={{...S.modal,maxWidth:440}}>
             <div style={S.modalHead}><span style={S.modalTitle}>📋 Copiar todos los recibos</span><button onClick={()=>setShowCopyAll(false)} style={S.xBtn}>✕</button></div>
             <div style={{background:"rgba(15,23,42,0.5)",borderRadius:8,padding:14,marginBottom:16}}>
-              <div style={{fontSize:13,color:"#f1f5f9",fontWeight:700,marginBottom:8}}>Se copiarán {filtered.length} recibo{filtered.length!==1?"s":""} de {MONTHS[filterMonth]} {filterYear}:</div>
+              <div style={{fontSize:13,color:"#f1f5f9",fontWeight:700,marginBottom:8}}>{filtered.length} recibo{filtered.length!==1?"s":""} de {MONTHS[filterMonth]} {filterYear}:</div>
               {filtered.map(r=>(
                 <div key={r.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
                   <span style={{color:"#94a3b8"}}>{r.clientName}</span>
@@ -1344,7 +1429,7 @@ export default function App() {
             onSaveRecibo={saveRecibo}
           />
         )}
-        {!dbLoading&&view==="recibos"&&<RecibosView recibos={recibos} clients={clients} company={company} concepts={concepts} onDeleteRecibo={deleteRecibo} onSaveRecibo={saveRecibo}/>}
+        {!dbLoading&&view==="recibos"&&<RecibosView recibos={recibos} clients={clients} company={company} concepts={concepts} onDeleteRecibo={deleteRecibo} onSaveRecibo={saveRecibo} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="pendientes"&&<MovimientosView clients={clients} status="pendiente" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="cobrado"&&<MovimientosView clients={clients} status="pagado" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="chart"&&<ChartView clients={clients} concepts={concepts}/>}
