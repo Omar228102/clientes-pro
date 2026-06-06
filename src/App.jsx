@@ -217,7 +217,7 @@ function generatePDF(client, company, items, folio, status="pendiente") {
   win.document.close();
   win.focus();
   // No auto-print: el usuario decide si imprime desde el navegador
-}
+  }
 
 // ─── LOGIN ───────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin, loading }) {
