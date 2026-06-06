@@ -409,56 +409,246 @@ function ReciboModal({ client, company, concepts, onClose, onSaveRecibo }) {
   );
 }
 
+// ─── PRINT UTILS ─────────────────────────────────────────────────────────────────
+function printList({ title, company, headers, rows, totals }) {
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,sans-serif;color:#111;padding:32px;}
+  h1{font-size:20px;font-weight:800;margin-bottom:4px;}
+  .sub{font-size:12px;color:#64748b;margin-bottom:20px;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th{background:#0f172a;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;}
+  td{padding:7px 10px;border-bottom:1px solid #f1f5f9;}
+  tr:nth-child(even) td{background:#f8fafc;}
+  .total-row td{font-weight:800;background:#f1f5f9;font-size:13px;}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style></head><body>
+  <h1>${title}</h1>
+  <div class="sub">${company?.name||""} ${company?.cuit?`· CUIT ${company.cuit}`:""} · ${new Date().toLocaleDateString("es-AR")}</div>
+  <table>
+    <thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+    <tbody>
+      ${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join("")}</tr>`).join("")}
+      ${totals?`<tr class="total-row">${totals.map(c=>`<td>${c}</td>`).join("")}</tr>`:""}
+    </tbody>
+  </table>
+</body></html>`;
+  const w=window.open("","_blank");w.document.write(html);w.document.close();w.focus();setTimeout(()=>w.print(),400);
+}
+
+// ─── RECIBO EDITOR (crear/editar recibo manualmente) ─────────────────────────────
+function ReciboEditor({ recibo, clients, concepts, company, onSave, onClose }) {
+  const isNew = !recibo;
+  const now = new Date();
+  const [clientId, setClientId] = useState(recibo?.clientId||"");
+  const [items, setItems] = useState(recibo?.items||[]);
+  const [date, setDate] = useState(recibo?.date||today());
+  const [addingItem, setAddingItem] = useState(false);
+  const [ef, setEf] = useState({concept:concepts[0]||"Honorarios",description:"",amount:""});
+  const [clientSearch, setClientSearch] = useState("");
+
+  const client = clients.find(c=>c.id===clientId);
+  const total = items.reduce((s,i)=>s+(i.amount||0),0);
+  const folio = recibo?.folio||`R-${Date.now().toString().slice(-6)}`;
+
+  const addItem = () => {
+    if(!ef.description||!ef.amount) return alert("Completá descripción y monto.");
+    setItems(p=>[...p,{...ef,amount:parseFloat(ef.amount),id:uid(),status:"pendiente",date}]);
+    setEf({concept:concepts[0]||"Honorarios",description:"",amount:""});
+    setAddingItem(false);
+  };
+
+  const removeItem = id => setItems(p=>p.filter(i=>i.id!==id));
+  const updateItem = (id,k,v) => setItems(p=>p.map(i=>i.id===id?{...i,[k]:k==="amount"?parseFloat(v)||0:v}:i));
+
+  const handleSave = async (action) => {
+    if(!clientId) return alert("Seleccioná un cliente.");
+    if(!items.length) return alert("Agregá al menos un ítem.");
+    const d = new Date(date);
+    const r = {
+      id: recibo?.id||uid(),
+      folio,
+      date,
+      month: d.getMonth(),
+      year: d.getFullYear(),
+      clientId: client.id,
+      clientName: client.name,
+      clientCuit: client.cuit||"",
+      items,
+      total,
+    };
+    await onSave(r);
+    if(action==="pdf") generatePDF(client,company,items,folio);
+    else if(action==="whatsapp") {
+      const txt = `🧾 *RECIBO*\n${company?.name?`🏢 ${company.name}\n`:""}N° ${folio} | ${date}\nCliente: ${client.name}\n${items.map(i=>`• ${i.concept} — ${i.description}: ${fmt(i.amount)}`).join("\n")}\n💰 TOTAL: ${fmt(total)}`;
+      window.open(`https://wa.me/${(client.phone||"").replace(/\D/g,"")}?text=${encodeURIComponent(txt)}`,"_blank");
+    }
+  };
+
+  const filteredClients = [...clients].filter(c=>(c.name||"").toLowerCase().includes(clientSearch.toLowerCase())).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+
+  return (
+    <div style={S.overlay}>
+      <div style={{...S.modal,maxWidth:620}}>
+        <div style={S.modalHead}>
+          <span style={S.modalTitle}>{isNew?"➕ Nuevo Recibo":"✏️ Editar Recibo"}</span>
+          <button onClick={onClose} style={S.xBtn}>✕</button>
+        </div>
+
+        {/* Selector de cliente */}
+        <div style={{...S.field,marginBottom:14}}>
+          <label style={S.lbl}>Cliente *</label>
+          {!clientId ? (
+            <div>
+              <input value={clientSearch} onChange={e=>setClientSearch(e.target.value)} placeholder="Buscar cliente..." style={{...S.inp,marginBottom:6}}/>
+              <div style={{maxHeight:180,overflowY:"auto",border:"1px solid rgba(255,255,255,0.08)",borderRadius:8,overflow:"hidden"}}>
+                {filteredClients.length===0&&<div style={{padding:12,fontSize:12,color:"#475569"}}>Sin clientes.</div>}
+                {filteredClients.map(c=>(
+                  <div key={c.id} onClick={()=>setClientId(c.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",background:"rgba(15,23,42,0.4)"}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:13,color:"#f1f5f9"}}>{c.name}</div>
+                      <div style={{fontSize:10,color:"#475569"}}>{c.cuit||""}{c.condicionFiscal?` · ${c.condicionFiscal}`:""}</div>
+                    </div>
+                    <span style={{fontSize:11,color:"#fca5a5",fontWeight:600}}>{fmt(pendingItems(c.items))} pend.</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{display:"flex",alignItems:"center",gap:10,background:"rgba(110,231,183,0.08)",border:"1px solid rgba(110,231,183,0.2)",borderRadius:8,padding:"10px 14px"}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,color:"#f1f5f9"}}>{client?.name}</div>
+                <div style={{fontSize:11,color:"#475569"}}>{client?.cuit||""}{client?.condicionFiscal?` · ${client.condicionFiscal}`:""}</div>
+              </div>
+              <button onClick={()=>{setClientId("");setClientSearch("");}} style={{...S.btn,...S.btnGhost,padding:"4px 10px",fontSize:11}}>Cambiar</button>
+            </div>
+          )}
+        </div>
+
+        {/* Fecha */}
+        <div style={{...S.field,marginBottom:14}}>
+          <label style={S.lbl}>Fecha del recibo</label>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...S.inp,width:"auto",maxWidth:180}}/>
+        </div>
+
+        {/* Ítems */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <label style={S.lbl}>Ítems del recibo</label>
+          <button onClick={()=>setAddingItem(!addingItem)} style={{...S.btn,...S.btnPrimary,padding:"5px 12px",fontSize:12}}>{addingItem?"Cancelar":"+ Agregar ítem"}</button>
+        </div>
+
+        {addingItem&&(
+          <div style={{background:"rgba(15,23,42,0.6)",borderRadius:8,padding:12,marginBottom:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div style={S.field}><label style={S.lbl}>Concepto</label>
+                <select value={ef.concept} onChange={e=>setEf({...ef,concept:e.target.value})} style={S.inp}>{concepts.map(c=><option key={c}>{c}</option>)}</select></div>
+              <div style={S.field}><label style={S.lbl}>Monto ($)</label>
+                <input type="number" value={ef.amount} onChange={e=>setEf({...ef,amount:e.target.value})} placeholder="0.00" style={S.inp}/></div>
+              <div style={{...S.field,gridColumn:"1/-1"}}><label style={S.lbl}>Descripción</label>
+                <input value={ef.description} onChange={e=>setEf({...ef,description:e.target.value})} onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="Ej. Honorarios enero 2026" style={S.inp}/></div>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setAddingItem(false)} style={{...S.btn,...S.btnGhost,padding:"6px 12px",fontSize:12}}>Cancelar</button>
+              <button onClick={addItem} style={{...S.btn,...S.btnPrimary,padding:"6px 12px",fontSize:12}}>+ Agregar</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,overflow:"hidden",marginBottom:12}}>
+          {items.length===0&&<div style={{padding:16,textAlign:"center",color:"#334155",fontSize:12}}>Sin ítems. Agregá al menos uno.</div>}
+          {items.map((item,idx)=>(
+            <div key={item.id} style={{display:"grid",gridTemplateColumns:"120px 1fr 110px 36px",gap:8,padding:"8px 12px",borderBottom:"1px solid rgba(255,255,255,0.04)",alignItems:"center",background:idx%2===0?"rgba(15,23,42,0.3)":"transparent"}}>
+              <select value={item.concept} onChange={e=>updateItem(item.id,"concept",e.target.value)} style={{...S.inp,fontSize:11,padding:"4px 6px"}}>
+                {concepts.map(c=><option key={c}>{c}</option>)}
+              </select>
+              <input value={item.description} onChange={e=>updateItem(item.id,"description",e.target.value)} style={{...S.inp,fontSize:12,padding:"5px 8px"}}/>
+              <input type="number" value={item.amount} onChange={e=>updateItem(item.id,"amount",e.target.value)} style={{...S.inp,fontSize:12,padding:"5px 8px",textAlign:"right"}}/>
+              <button onClick={()=>removeItem(item.id)} style={{...S.iconBtn,color:"#fca5a5",fontSize:13}}>🗑</button>
+            </div>
+          ))}
+          {items.length>0&&(
+            <div style={{display:"flex",justifyContent:"space-between",padding:"10px 14px",background:"rgba(15,23,42,0.6)"}}>
+              <span style={{fontSize:12,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>TOTAL</span>
+              <span style={{fontWeight:800,color:"#6ee7b7",fontSize:15}}>{fmt(total)}</span>
+            </div>
+          )}
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <button onClick={()=>handleSave("save")} style={{...S.btn,...S.btnGhost,fontSize:12,padding:"9px"}}>💾 Solo guardar</button>
+          <button onClick={()=>handleSave("pdf")} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",fontSize:12,padding:"9px"}}>📄 Guardar + PDF</button>
+          <button onClick={()=>handleSave("whatsapp")} style={{...S.btn,...S.btnWa,fontSize:12,padding:"9px",textAlign:"center"}}>📲 Guardar + WA</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── RECIBOS VIEW ─────────────────────────────────────────────────────────────────
-function RecibosView({ recibos, company, concepts, onDeleteRecibo, onCopyRecibo }) {
+function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSaveRecibo }) {
   const now = new Date();
   const [filterMonth,setFilterMonth] = useState(now.getMonth());
   const [filterYear,setFilterYear] = useState(now.getFullYear());
-  const [showCopy,setShowCopy] = useState(null); // recibo a copiar
   const [toMonth,setToMonth] = useState((now.getMonth()+1)%12);
   const [toYear,setToYear] = useState(now.getMonth()===11?now.getFullYear()+1:now.getFullYear());
+  const [showEditor,setShowEditor] = useState(false);
+  const [editingRecibo,setEditingRecibo] = useState(null);
+  const [showCopyAll,setShowCopyAll] = useState(false);
 
   const filtered = recibos.filter(r=>r.month===filterMonth&&r.year===filterYear)
     .sort((a,b)=>b.date?.localeCompare(a.date||"")||0);
   const totalMes = filtered.reduce((s,r)=>s+(r.total||0),0);
 
-  const handleCopy = (recibo) => {
-    const newDate = `${toYear}-${String(toMonth+1).padStart(2,"0")}-${recibo.date.slice(8,10)}`;
-    const newRecibo = {
-      ...recibo,
-      id: uid(),
-      folio: `R-${Date.now().toString().slice(-6)}`,
-      date: newDate,
-      month: toMonth,
-      year: toYear,
-      items: recibo.items.map(i=>({...i,id:uid(),status:"pendiente",date:newDate})),
-    };
-    onCopyRecibo(newRecibo);
-    setShowCopy(null);
-    alert(`✓ Recibo copiado a ${MONTHS[toMonth]} ${toYear}`);
+  const handleCopyAll = async () => {
+    if(!filtered.length) return alert("No hay recibos en el mes seleccionado.");
+    for(const r of filtered) {
+      const newDate = `${toYear}-${String(toMonth+1).padStart(2,"0")}-${r.date.slice(8,10)}`;
+      const nr = {
+        ...r,
+        id: uid(),
+        folio: `R-${Date.now().toString().slice(-6)}-${Math.random().toString(36).slice(2,5)}`,
+        date: newDate,
+        month: toMonth,
+        year: toYear,
+        items: r.items.map(i=>({...i,id:uid(),status:"pendiente",date:newDate})),
+      };
+      await onSaveRecibo(nr);
+    }
+    setShowCopyAll(false);
+    alert(`✓ ${filtered.length} recibo${filtered.length!==1?"s":""} copiado${filtered.length!==1?"s":""} a ${MONTHS[toMonth]} ${toYear}`);
+  };
+
+  const handlePrint = () => {
+    printList({
+      title:`Recibos — ${MONTHS[filterMonth]} ${filterYear}`,
+      company,
+      headers:["Folio","Fecha","Cliente","CUIT","Detalle","Total"],
+      rows: filtered.map(r=>[r.folio,r.date,r.clientName,r.clientCuit||"—",(r.items||[]).map(i=>`${i.concept}: ${i.description}`).join(" / "),fmt(r.total)]),
+      totals:["","","","","TOTAL",fmt(totalMes)],
+    });
   };
 
   return (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
-        <h2 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>📋 Historial de Recibos</h2>
-        <div style={{display:"flex",gap:8}}>
+        <h2 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>🧾 Recibos</h2>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <select value={filterMonth} onChange={e=>setFilterMonth(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>
             {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
           </select>
           <select value={filterYear} onChange={e=>setFilterYear(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>
             {[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}
           </select>
+          <button onClick={handlePrint} style={{...S.btn,...S.btnGhost,padding:"6px 12px",fontSize:12}}>🖨 Imprimir</button>
+          {filtered.length>0&&<button onClick={()=>setShowCopyAll(true)} style={{...S.btn,...S.btnGhost,padding:"6px 12px",fontSize:12}}>📋 Copiar todos</button>}
+          <button onClick={()=>{setEditingRecibo(null);setShowEditor(true);}} style={{...S.btn,...S.btnPrimary}}>+ Nuevo Recibo</button>
         </div>
       </div>
 
-      {/* Resumen mes */}
+      {/* Resumen */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:20}}>
-        {[
-          ["Total emitido",fmt(totalMes),"#6ee7b7"],
-          ["Recibos",filtered.length,"#93c5fd"],
-          ["Clientes",new Set(filtered.map(r=>r.clientId)).size,"#fde68a"],
-        ].map(([l,v,c])=>(
+        {[["Total emitido",fmt(totalMes),"#6ee7b7"],["Recibos",filtered.length,"#93c5fd"],["Clientes",new Set(filtered.map(r=>r.clientId)).size,"#fde68a"]].map(([l,v,c])=>(
           <div key={l} style={{...S.card,padding:"12px 16px"}}>
             <div style={{fontWeight:800,fontSize:18,color:c}}>{v}</div>
             <div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>{l} — {MONTHS[filterMonth]}</div>
@@ -466,69 +656,78 @@ function RecibosView({ recibos, company, concepts, onDeleteRecibo, onCopyRecibo 
         ))}
       </div>
 
-      {/* Lista de recibos */}
+      {/* Tabla */}
       <div style={{...S.card,padding:0,overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 120px 120px",padding:"8px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+        <div style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 110px 180px",padding:"8px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
           {["Folio","Cliente","Ítems","Total","Acciones"].map(h=>(
             <div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
           ))}
         </div>
-        {filtered.length===0&&<div style={S.empty}>Sin recibos en {MONTHS[filterMonth]} {filterYear}</div>}
+        {filtered.length===0&&<div style={S.empty}>Sin recibos en {MONTHS[filterMonth]} {filterYear}<br/><span style={{fontSize:12,color:"#334155"}}>Creá uno con "+ Nuevo Recibo"</span></div>}
         {filtered.map((r,idx)=>(
-          <div key={r.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 120px 120px",padding:"11px 14px",borderBottom:"1px solid rgba(255,255,255,0.03)",background:idx%2===0?"rgba(15,23,42,0.2)":"transparent",alignItems:"center"}}>
-            <div>
-              <div style={{fontWeight:700,fontSize:12,color:"#6ee7b7"}}>{r.folio}</div>
-              <div style={{fontSize:10,color:"#475569"}}>{r.date}</div>
-            </div>
-            <div style={{fontSize:13,color:"#f1f5f9",fontWeight:600}}>{r.clientName}
-              {r.clientCuit&&<div style={{fontSize:10,color:"#475569"}}>{r.clientCuit}</div>}
-            </div>
+          <div key={r.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 110px 180px",padding:"11px 14px",borderBottom:"1px solid rgba(255,255,255,0.03)",background:idx%2===0?"rgba(15,23,42,0.2)":"transparent",alignItems:"center"}}>
+            <div><div style={{fontWeight:700,fontSize:12,color:"#6ee7b7"}}>{r.folio}</div><div style={{fontSize:10,color:"#475569"}}>{r.date}</div></div>
+            <div style={{fontSize:13,color:"#f1f5f9",fontWeight:600}}>{r.clientName}{r.clientCuit&&<div style={{fontSize:10,color:"#475569"}}>{r.clientCuit}</div>}</div>
             <div style={{fontSize:11,color:"#94a3b8"}}>
-              {(r.items||[]).slice(0,2).map(i=>(
-                <div key={i.id}>{i.concept} — {i.description}</div>
-              ))}
+              {(r.items||[]).slice(0,2).map(i=>(<div key={i.id}>{i.concept} — {i.description}</div>))}
               {(r.items||[]).length>2&&<div style={{color:"#475569"}}>+{r.items.length-2} más</div>}
             </div>
             <div style={{fontWeight:800,color:"#6ee7b7",fontSize:14}}>{fmt(r.total)}</div>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>{ generatePDF({name:r.clientName,cuit:r.clientCuit},company,r.items,r.folio); }} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",padding:"5px 10px",fontSize:11}}>📄</button>
-              <button onClick={()=>setShowCopy(r)} style={{...S.btn,...S.btnGhost,padding:"5px 10px",fontSize:11}}>📋 Copiar</button>
-              <button onClick={()=>{if(confirm("¿Eliminar recibo?"))onDeleteRecibo(r.id);}} style={{...S.iconBtn,color:"#fca5a5",fontSize:13}}>🗑</button>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              <button onClick={()=>generatePDF({name:r.clientName,cuit:r.clientCuit},company,r.items,r.folio)} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",padding:"4px 8px",fontSize:11}}>📄</button>
+              <button onClick={()=>{setEditingRecibo(r);setShowEditor(true);}} style={{...S.btn,...S.btnGhost,padding:"4px 8px",fontSize:11}}>✏️</button>
+              <button onClick={()=>{if(confirm("¿Eliminar?"))onDeleteRecibo(r.id);}} style={{...S.iconBtn,color:"#fca5a5",fontSize:13}}>🗑</button>
             </div>
           </div>
         ))}
         {filtered.length>0&&(
-          <div style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 120px 120px",padding:"9px 14px",background:"rgba(15,23,42,0.6)",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
+          <div style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 110px 180px",padding:"9px 14px",background:"rgba(15,23,42,0.6)",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
             <span style={{gridColumn:"1/4",fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>TOTAL {MONTHS[filterMonth].toUpperCase()}</span>
             <span style={{fontWeight:800,color:"#6ee7b7",fontSize:14}}>{fmt(totalMes)}</span>
           </div>
         )}
       </div>
 
-      {/* Modal copiar recibo */}
-      {showCopy&&(
+      {/* Editor de recibo */}
+      {showEditor&&(
+        <ReciboEditor
+          recibo={editingRecibo}
+          clients={clients}
+          concepts={concepts}
+          company={company}
+          onSave={async r=>{await onSaveRecibo(r);setShowEditor(false);setEditingRecibo(null);}}
+          onClose={()=>{setShowEditor(false);setEditingRecibo(null);}}
+        />
+      )}
+
+      {/* Copiar todos al mes siguiente */}
+      {showCopyAll&&(
         <div style={S.overlay}>
-          <div style={{...S.modal,maxWidth:420}}>
-            <div style={S.modalHead}><span style={S.modalTitle}>📋 Copiar recibo al otro mes</span><button onClick={()=>setShowCopy(null)} style={S.xBtn}>✕</button></div>
-            <div style={{background:"rgba(15,23,42,0.5)",borderRadius:8,padding:12,marginBottom:16}}>
-              <div style={{fontSize:12,color:"#94a3b8",marginBottom:4}}>Recibo: <strong style={{color:"#f1f5f9"}}>{showCopy.folio}</strong></div>
-              <div style={{fontSize:12,color:"#94a3b8",marginBottom:4}}>Cliente: <strong style={{color:"#f1f5f9"}}>{showCopy.clientName}</strong></div>
-              <div style={{fontSize:12,color:"#94a3b8"}}>Total: <strong style={{color:"#6ee7b7"}}>{fmt(showCopy.total)}</strong></div>
+          <div style={{...S.modal,maxWidth:440}}>
+            <div style={S.modalHead}><span style={S.modalTitle}>📋 Copiar todos los recibos</span><button onClick={()=>setShowCopyAll(false)} style={S.xBtn}>✕</button></div>
+            <div style={{background:"rgba(15,23,42,0.5)",borderRadius:8,padding:14,marginBottom:16}}>
+              <div style={{fontSize:13,color:"#f1f5f9",fontWeight:700,marginBottom:8}}>Se copiarán {filtered.length} recibo{filtered.length!==1?"s":""} de {MONTHS[filterMonth]} {filterYear}:</div>
+              {filtered.map(r=>(
+                <div key={r.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+                  <span style={{color:"#94a3b8"}}>{r.clientName}</span>
+                  <span style={{color:"#6ee7b7",fontWeight:700}}>{fmt(r.total)}</span>
+                </div>
+              ))}
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:8,fontWeight:800,fontSize:13}}>
+                <span style={{color:"#64748b"}}>Total</span>
+                <span style={{color:"#6ee7b7"}}>{fmt(totalMes)}</span>
+              </div>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
               <div style={S.field}><label style={S.lbl}>Mes destino</label>
-                <select value={toMonth} onChange={e=>setToMonth(Number(e.target.value))} style={S.inp}>
-                  {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
-                </select></div>
+                <select value={toMonth} onChange={e=>setToMonth(Number(e.target.value))} style={S.inp}>{MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}</select></div>
               <div style={S.field}><label style={S.lbl}>Año destino</label>
-                <select value={toYear} onChange={e=>setToYear(Number(e.target.value))} style={S.inp}>
-                  {[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}
-                </select></div>
+                <select value={toYear} onChange={e=>setToYear(Number(e.target.value))} style={S.inp}>{[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}</select></div>
             </div>
-            <div style={{fontSize:12,color:"#64748b",marginBottom:16}}>Los ítems se copiarán como <strong style={{color:"#fca5a5"}}>pendientes</strong> en {MONTHS[toMonth]} {toYear}.</div>
+            <div style={{fontSize:12,color:"#64748b",marginBottom:16}}>Los recibos se copiarán como <strong style={{color:"#fca5a5"}}>pendientes</strong>. Después podés editarlos uno por uno.</div>
             <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>
-              <button onClick={()=>setShowCopy(null)} style={{...S.btn,...S.btnGhost}}>Cancelar</button>
-              <button onClick={()=>handleCopy(showCopy)} style={{...S.btn,...S.btnPrimary}}>Copiar → {MONTHS[toMonth]} {toYear}</button>
+              <button onClick={()=>setShowCopyAll(false)} style={{...S.btn,...S.btnGhost}}>Cancelar</button>
+              <button onClick={handleCopyAll} style={{...S.btn,...S.btnPrimary}}>Copiar {filtered.length} recibo{filtered.length!==1?"s":""} → {MONTHS[toMonth]} {toYear}</button>
             </div>
           </div>
         </div>
@@ -738,6 +937,16 @@ function MovimientosView({ clients, status, concepts, company, onUpdateClient })
 
   const isPending = status==="pendiente";
 
+  const handlePrint = () => {
+    printList({
+      title: isPending?"Pendientes de cobro":"Cobrado",
+      company,
+      headers:["Cliente","Concepto","Descripción","Monto","Fecha"],
+      rows: allItems.map(i=>[i.clientName, i.concept, i.description, fmt(i.amount), i.date]),
+      totals:["","","TOTAL",fmt(totalAmt),""],
+    });
+  };
+
   return (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
@@ -752,6 +961,7 @@ function MovimientosView({ clients, status, concepts, company, onUpdateClient })
           <select value={filterYear} onChange={e=>setFilterYear(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>
             {[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}
           </select>
+          <button onClick={handlePrint} style={{...S.btn,...S.btnGhost,padding:"6px 12px",fontSize:12}}>🖨 Imprimir</button>
         </div>
       </div>
 
@@ -887,7 +1097,7 @@ export default function App() {
   const [dbLoading,setDbLoading] = useState(false);
   const [company,setCompany] = useState(DEFAULT_COMPANY);
   const [concepts,setConcepts] = useState(DEFAULT_CONCEPTS);
-  const [view,setView] = useState("list");
+  const [view,setView] = useState("chart");
   const [selected,setSelected] = useState(null);
   const [search,setSearch] = useState("");
   const [sortBy,setSortBy] = useState("name");
@@ -979,7 +1189,10 @@ export default function App() {
           <>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:10}}>
               <h1 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>Clientes <span style={{fontSize:13,color:"#475569",fontWeight:400}}>({clients.length})</span></h1>
-              <button onClick={()=>setView("add")} style={{...S.btn,...S.btnPrimary}}>+ Nuevo cliente</button>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>printList({title:"Lista de Clientes",company,headers:["Cliente","CUIT","Condición","Total","Cobrado","Pendiente"],rows:sorted.map(c=>[c.name,c.cuit||"—",c.condicionFiscal||"—",fmt(totalItems(c.items)),fmt(paidItems(c.items)),fmt(pendingItems(c.items))]),totals:["TOTALES","","",fmt(clients.reduce((s,c)=>s+totalItems(c.items),0)),fmt(allPaid),fmt(allPend)]})} style={{...S.btn,...S.btnGhost,fontSize:12,padding:"7px 12px"}}>🖨 Imprimir</button>
+                <button onClick={()=>setView("add")} style={{...S.btn,...S.btnPrimary}}>+ Nuevo cliente</button>
+              </div>
             </div>
             <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
               <div style={{flex:1,minWidth:180,display:"flex",alignItems:"center",background:"rgba(30,41,59,0.6)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,padding:"0 12px"}}>
@@ -1039,7 +1252,7 @@ export default function App() {
             onSaveRecibo={saveRecibo}
           />
         )}
-        {!dbLoading&&view==="recibos"&&<RecibosView recibos={recibos} company={company} concepts={concepts} onDeleteRecibo={deleteRecibo} onCopyRecibo={copyRecibo}/>}
+        {!dbLoading&&view==="recibos"&&<RecibosView recibos={recibos} clients={clients} company={company} concepts={concepts} onDeleteRecibo={deleteRecibo} onSaveRecibo={saveRecibo}/>}
         {!dbLoading&&view==="pendientes"&&<MovimientosView clients={clients} status="pendiente" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="cobrado"&&<MovimientosView clients={clients} status="pagado" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="chart"&&<ChartView clients={clients} concepts={concepts}/>}
