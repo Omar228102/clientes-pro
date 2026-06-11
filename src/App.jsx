@@ -17,6 +17,8 @@ const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 
 const DEFAULT_CONCEPTS = ["Honorarios","Consultoria","Mantenimiento","Materiales","Traslado","Capacitacion","Otro"];
+const EXPENSE_CONCEPTS = ["Alquiler","Servicios","Sueldos","Impuestos","Insumos","Marketing","Otros gastos"];
+const EXPENSE_COLORS = ["#fca5a5","#f87171","#ef4444","#dc2626","#b91c1c","#991b1b","#7f1d1d"];
 const CONCEPT_COLORS = ["#6ee7b7","#93c5fd","#fde68a","#f9a8d4","#c4b5fd","#fb923c","#94a3b8","#67e8f9","#a78bfa","#fdba74"];
 const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const MONTHS_SHORT = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -275,10 +277,11 @@ function ClientForm({ initial, onSave, onCancel }) {
   );
 }
 
-function CuentaCorriente({ client, concepts, company, onBack, onUpdate, onSaveRecibo }) {
+function CuentaCorriente({ client, concepts, company, onBack, onUpdate, onSaveRecibo, clientRecibos }) {
   const [addingItem,setAddingItem] = useState(false);
   const [showRecibo,setShowRecibo] = useState(false);
   const [showCopy,setShowCopy] = useState(false);
+  const [recibosOpen,setRecibosOpen] = useState(false);
   const [filterMonth,setFilterMonth] = useState("all");
   const [filterYear,setFilterYear] = useState(new Date().getFullYear());
   const items = client.items||[];
@@ -322,6 +325,28 @@ function CuentaCorriente({ client, concepts, company, onBack, onUpdate, onSaveRe
           </div>
         </div>
       )}
+      {/* Recibos desplegables */}
+      <div style={{...S.card,padding:0,overflow:"hidden",marginBottom:16}}>
+        <button onClick={()=>setRecibosOpen(!recibosOpen)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",padding:"12px 16px",background:"rgba(15,23,42,0.6)",border:"none",cursor:"pointer",color:"#f1f5f9"}}>
+          <span style={{fontWeight:700,fontSize:13}}>Recibos emitidos ({(clientRecibos||[]).length})</span>
+          <span style={{fontSize:14,color:"#64748b"}}>{recibosOpen?"▲":"▼"}</span>
+        </button>
+        {recibosOpen&&(
+          <div>
+            {(clientRecibos||[]).length===0&&<div style={{padding:16,textAlign:"center",color:"#334155",fontSize:12}}>Sin recibos emitidos para este cliente</div>}
+            {[...(clientRecibos||[])].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map((r,idx)=>(
+              <div key={r.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 100px 110px 80px",padding:"10px 16px",borderTop:"1px solid rgba(255,255,255,0.04)",background:idx%2===0?"rgba(15,23,42,0.2)":"transparent",alignItems:"center"}}>
+                <div><div style={{fontWeight:700,fontSize:12,color:"#6ee7b7"}}>{r.folio}</div><div style={{fontSize:10,color:"#475569"}}>{r.date}</div></div>
+                <div style={{fontSize:11,color:"#94a3b8"}}>{(r.items||[]).slice(0,2).map(i=><div key={i.id}>{i.concept}{i.description?" - "+i.description:""}</div>)}{(r.items||[]).length>2&&<div style={{color:"#475569"}}>+{(r.items||[]).length-2} mas</div>}</div>
+                <div style={{fontWeight:800,color:"#6ee7b7",fontSize:13}}>{fmt(r.total)}</div>
+                <span style={{...S.badge,...(r.status==="pendiente"?S.bPend:S.bPaid),fontSize:10}}>{r.status==="pendiente"?"Pendiente":"Cobrado"}</span>
+                <button onClick={()=>generatePDF({name:r.clientName,cuit:r.clientCuit},company,r.items,r.folio,r.status)} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",padding:"4px 8px",fontSize:11}}>PDF</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div style={{display:"flex",gap:10,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:12,color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Cuenta Corriente</span>
         <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{...S.inp,padding:"5px 10px",fontSize:12,width:"auto",marginLeft:"auto"}}>
@@ -613,7 +638,8 @@ function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSa
   const [showCopyAll,setShowCopyAll] = useState(false);
   const [selected,setSelected] = useState([]);
 
-  const filtered = recibos.filter(r=>r.month===filterMonth&&r.year===filterYear).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const [sortDir,setSortDir] = useState("desc");
+  const filtered = recibos.filter(r=>r.month===filterMonth&&r.year===filterYear).sort((a,b)=>sortDir==="asc"?(a.clientName||"").localeCompare(b.clientName||""):(b.date||"").localeCompare(a.date||""));
   const totalMes = filtered.reduce((s,r)=>s+(r.total||0),0);
   const toggleSelect = id=>setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
   const toggleAll = ()=>setSelected(selected.length===filtered.length&&filtered.length>0?[]:filtered.map(r=>r.id));
@@ -658,6 +684,7 @@ function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSa
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <select value={filterMonth} onChange={e=>{setFilterMonth(Number(e.target.value));setSelected([]);}} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>{MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
           <select value={filterYear} onChange={e=>{setFilterYear(Number(e.target.value));setSelected([]);}} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>{[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}</select>
+          <select value={sortDir} onChange={e=>setSortDir(e.target.value)} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}><option value="desc">Mas reciente</option><option value="asc">A-Z cliente</option></select>
           {filtered.length>0&&<button onClick={()=>setShowCopyAll(true)} style={{...S.btn,...S.btnGhost,padding:"6px 12px",fontSize:12}}>Copiar mes</button>}
           <button onClick={()=>{setEditingRecibo(null);setShowEditor(true);}} style={{...S.btn,...S.btnPrimary}}>+ Nuevo Recibo</button>
         </div>
@@ -765,6 +792,7 @@ function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSa
 function MovimientosView({ clients, status, concepts, company, onUpdateClient }) {
   const [filterMonth,setFilterMonth] = useState("all");
   const [filterYear,setFilterYear] = useState(new Date().getFullYear());
+  const [sortDir,setSortDir] = useState("asc");
   const isPending = status==="pendiente";
   const allItems = useMemo(()=>{
     const rows=[];
@@ -776,7 +804,7 @@ function MovimientosView({ clients, status, concepts, company, onUpdateClient })
         rows.push({...i,clientName:c.name,clientId:c.id,client:c});
       });
     });
-    return rows.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    return rows.sort((a,b)=>sortDir==="asc"?(a.clientName||"").localeCompare(b.clientName||""):(b.date||"").localeCompare(a.date||""));
   },[clients,status,filterMonth,filterYear]);
   const totalAmt = allItems.reduce((s,i)=>s+(i.amount||0),0);
   const toggleStatus = (clientId,itemId)=>{
@@ -803,6 +831,7 @@ function MovimientosView({ clients, status, concepts, company, onUpdateClient })
             {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
           </select>
           <select value={filterYear} onChange={e=>setFilterYear(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>{[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}</select>
+          <select value={sortDir} onChange={e=>setSortDir(e.target.value)} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}><option value="asc">A-Z cliente</option><option value="desc">Mas reciente</option></select>
           <button onClick={handlePrint} style={{...S.btn,...S.btnGhost,padding:"6px 12px",fontSize:12}}>Imprimir</button>
         </div>
       </div>
@@ -834,6 +863,82 @@ function MovimientosView({ clients, status, concepts, company, onUpdateClient })
             <span style={{fontWeight:800,color:isPending?"#fca5a5":"#6ee7b7",fontSize:13}}>{fmt(totalAmt)}</span>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+
+function GastosView({ gastos, onAdd, onDelete, onToggle }) {
+  const now = new Date();
+  const [filterMonth,setFilterMonth] = useState(now.getMonth());
+  const [filterYear,setFilterYear] = useState(now.getFullYear());
+  const [addingGasto,setAddingGasto] = useState(false);
+  const [sortDir,setSortDir] = useState("desc");
+  const [f,setF] = useState({concept:EXPENSE_CONCEPTS[0],description:"",amount:"",date:today(),status:"pagado"});
+  const set = k=>e=>setF({...f,[k]:e.target.value});
+  const filtered = gastos.filter(g=>{const d=new Date(g.date);return d.getMonth()===filterMonth&&d.getFullYear()===filterYear;}).sort((a,b)=>sortDir==="asc"?(a.description||"").localeCompare(b.description||""):(b.date||"").localeCompare(a.date||""));
+  const total = filtered.reduce((s,g)=>s+(g.amount||0),0);
+  const pagado = filtered.filter(g=>g.status==="pagado").reduce((s,g)=>s+(g.amount||0),0);
+  const pendiente = filtered.filter(g=>g.status==="pendiente").reduce((s,g)=>s+(g.amount||0),0);
+  const byConcepto = EXPENSE_CONCEPTS.map((c,i)=>({concept:c,color:EXPENSE_COLORS[i%EXPENSE_COLORS.length],total:filtered.filter(g=>g.concept===c).reduce((s,g)=>s+(g.amount||0),0)})).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <h2 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>Gastos</h2>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <select value={filterMonth} onChange={e=>setFilterMonth(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>{MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
+          <select value={filterYear} onChange={e=>setFilterYear(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>{[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}</select>
+          <select value={sortDir} onChange={e=>setSortDir(e.target.value)} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}><option value="desc">Mas reciente</option><option value="asc">A-Z</option></select>
+          <button onClick={()=>setAddingGasto(!addingGasto)} style={{...S.btn,...S.btnPrimary}}>{addingGasto?"Cancelar":"+ Nuevo gasto"}</button>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:16}}>
+        {[["Total gastos",fmt(total),"#fca5a5"],["Pagado",fmt(pagado),"#f87171"],["Pendiente",fmt(pendiente),"#fde68a"],["Items",filtered.length,"#94a3b8"]].map(([l,v,c])=>(
+          <div key={l} style={{...S.card,padding:"12px 14px"}}><div style={{fontWeight:800,fontSize:16,color:c}}>{v}</div><div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>{l} — {MONTHS_SHORT[filterMonth]}</div></div>
+        ))}
+      </div>
+      {addingGasto&&(
+        <div style={{...S.card,marginBottom:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div style={S.field}><label style={S.lbl}>Concepto</label><select value={f.concept} onChange={set("concept")} style={S.inp}>{EXPENSE_CONCEPTS.map(c=><option key={c}>{c}</option>)}</select></div>
+            <div style={S.field}><label style={S.lbl}>Monto ($)</label><input type="number" value={f.amount} onChange={set("amount")} placeholder="0.00" style={S.inp}/></div>
+            <div style={{...S.field,gridColumn:"1/-1"}}><label style={S.lbl}>Descripcion</label><input value={f.description} onChange={set("description")} placeholder="Ej. Alquiler enero" style={S.inp}/></div>
+            <div style={S.field}><label style={S.lbl}>Fecha</label><input type="date" value={f.date} onChange={set("date")} style={S.inp}/></div>
+            <div style={S.field}><label style={S.lbl}>Estado</label><select value={f.status} onChange={set("status")} style={S.inp}><option value="pagado">Pagado</option><option value="pendiente">Pendiente</option></select></div>
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"flex-end"}}>
+            <button onClick={()=>setAddingGasto(false)} style={{...S.btn,...S.btnGhost,padding:"7px 14px",fontSize:13}}>Cancelar</button>
+            <button onClick={()=>{if(!f.description||!f.amount)return alert("Completa descripcion y monto.");onAdd({...f,amount:parseFloat(f.amount),id:uid()});setAddingGasto(false);setF({concept:EXPENSE_CONCEPTS[0],description:"",amount:"",date:today(),status:"pagado"});}} style={{...S.btn,...S.btnPrimary,padding:"7px 14px",fontSize:13}}>+ Agregar</button>
+          </div>
+        </div>
+      )}
+      {byConcepto.length>0&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,marginBottom:16}}>
+          {byConcepto.map(({concept,color,total:t})=>(
+            <div key={concept} style={{...S.card,padding:"12px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}><span style={{width:8,height:8,borderRadius:"50%",background:color,flexShrink:0}}/><span style={{fontSize:11,color:"#94a3b8"}}>{concept}</span></div>
+              <div style={{fontWeight:800,fontSize:16,color}}>{fmt(t)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{...S.card,padding:0,overflow:"hidden"}}>
+        <div style={{display:"grid",gridTemplateColumns:"110px 2fr 100px 100px 110px 36px",padding:"8px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+          {["Concepto","Descripcion","Monto","Fecha","Estado",""].map(h=><div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>)}
+        </div>
+        {filtered.length===0&&<div style={S.empty}>Sin gastos en {MONTHS[filterMonth]} {filterYear}</div>}
+        {filtered.map((g,idx)=>(
+          <div key={g.id} style={{display:"grid",gridTemplateColumns:"110px 2fr 100px 100px 110px 36px",padding:"9px 14px",borderBottom:"1px solid rgba(255,255,255,0.03)",background:idx%2===0?"rgba(15,23,42,0.2)":"transparent",alignItems:"center"}}>
+            <span style={{...S.ctag,background:"rgba(252,165,165,0.15)",color:"#fca5a5",fontSize:10}}>{g.concept}</span>
+            <span style={{fontSize:12,color:"#e2e8f0"}}>{g.description}</span>
+            <span style={{fontWeight:700,color:"#fca5a5",fontSize:12}}>{fmt(g.amount)}</span>
+            <span style={{fontSize:11,color:"#475569"}}>{g.date}</span>
+            <button onClick={()=>onToggle(g.id)} style={{...S.badge,...(g.status==="pagado"?S.bPaid:S.bPend),fontSize:10}}>{g.status==="pagado"?"Pagado":"Pendiente"}</button>
+            <button onClick={()=>{if(window.confirm("Eliminar gasto?"))onDelete(g.id);}} style={{...S.iconBtn,color:"#fca5a5",fontSize:12}}>X</button>
+          </div>
+        ))}
+        {filtered.length>0&&<div style={{display:"grid",gridTemplateColumns:"110px 2fr 100px 100px 110px 36px",padding:"9px 14px",background:"rgba(15,23,42,0.6)",borderTop:"1px solid rgba(255,255,255,0.08)"}}><span style={{gridColumn:"1/3",fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>TOTAL</span><span style={{fontWeight:800,color:"#fca5a5",fontSize:13}}>{fmt(total)}</span></div>}
       </div>
     </div>
   );
@@ -910,6 +1015,7 @@ export default function App() {
   const [authLoading,setAuthLoading] = useState(true);
   const [clients,setClients] = useState([]);
   const [recibos,setRecibos] = useState([]);
+  const [gastos,setGastos] = useState([]);
   const [dbLoading,setDbLoading] = useState(false);
   const [company,setCompany] = useState(DEFAULT_COMPANY);
   const [concepts,setConcepts] = useState(DEFAULT_CONCEPTS);
@@ -928,7 +1034,8 @@ export default function App() {
     const u2=onSnapshot(doc(db,"users",user.uid,"settings","company"),s=>{if(s.exists())setCompany(s.data());});
     const u3=onSnapshot(doc(db,"users",user.uid,"settings","concepts"),s=>{if(s.exists()&&s.data().list)setConcepts(s.data().list);});
     const u4=onSnapshot(collection(db,"users",user.uid,"recibos"),s=>{setRecibos(s.docs.map(d=>({id:d.id,...d.data()})));});
-    return()=>{u1();u2();u3();u4();};
+    const u5=onSnapshot(collection(db,"users",user.uid,"gastos"),s=>{setGastos(s.docs.map(d=>({id:d.id,...d.data()})));});
+    return()=>{u1();u2();u3();u4();u5();};
   },[user]);
 
   const login=async()=>{setAuthLoading(true);try{await signInWithPopup(auth,new GoogleAuthProvider());}catch{setAuthLoading(false);}};
@@ -940,6 +1047,9 @@ export default function App() {
   const saveCompany=async p=>{setCompany(p);await setDoc(doc(db,"users",user.uid,"settings","company"),p);setShowCompany(false);};
   const saveConcepts=async l=>{setConcepts(l);await setDoc(doc(db,"users",user.uid,"settings","concepts"),{list:l});setShowConcepts(false);};
   const saveRecibo=async r=>await setDoc(doc(db,"users",user.uid,"recibos",r.id),r);
+  const addGasto=async g=>await setDoc(doc(db,"users",user.uid,"gastos",g.id),g);
+  const deleteGasto=async id=>await deleteDoc(doc(db,"users",user.uid,"gastos",id));
+  const toggleGasto=async id=>{const g=gastos.find(x=>x.id===id);if(g)await setDoc(doc(db,"users",user.uid,"gastos",id),{...g,status:g.status==="pagado"?"pendiente":"pagado"});};
   const deleteRecibo=async id=>await deleteDoc(doc(db,"users",user.uid,"recibos",id));
 
   if(authLoading)return<div style={{minHeight:"100vh",background:"#080d1a",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#6ee7b7",fontSize:40}}>◈</span></div>;
@@ -954,7 +1064,7 @@ export default function App() {
     return 0;
   });
 
-  const NAV=[["Clientes","list"],["Recibos","recibos"],["Pendientes","pendientes"],["Cobrado","cobrado"],["Analisis","chart"]];
+  const NAV=[["Clientes","list"],["Recibos","recibos"],["Pendientes","pendientes"],["Cobrado","cobrado"],["Gastos","gastos"],["Analisis","chart"]];
 
   return (
     <div style={S.root}>
@@ -1040,16 +1150,18 @@ export default function App() {
         {!dbLoading&&view==="edit"&&selected&&<ClientForm initial={selected} onSave={async d=>{await updateClient({...selected,...d});setView("list");}} onCancel={()=>setView("list")}/>}
         {!dbLoading&&view==="cuenta"&&selected&&(
           <CuentaCorriente
-            client={clients.find(c=>c.id===selected&&selected.id)||selected}
+            client={clients.find(c=>c.id===selected.id)||selected}
             concepts={concepts} company={company}
             onBack={()=>setView("list")}
             onUpdate={updateClient}
             onSaveRecibo={saveRecibo}
+            clientRecibos={recibos.filter(r=>r.clientId===selected.id)}
           />
         )}
         {!dbLoading&&view==="recibos"&&<RecibosView recibos={recibos} clients={clients} company={company} concepts={concepts} onDeleteRecibo={deleteRecibo} onSaveRecibo={saveRecibo} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="pendientes"&&<MovimientosView clients={clients} status="pendiente" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="cobrado"&&<MovimientosView clients={clients} status="pagado" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
+        {!dbLoading&&view==="gastos"&&<GastosView gastos={gastos} onAdd={addGasto} onDelete={deleteGasto} onToggle={toggleGasto}/>}
         {!dbLoading&&view==="chart"&&<ChartView clients={clients} concepts={concepts}/>}
       </div>
       {showCompany&&<CompanyModal company={company} onSave={saveCompany} onClose={()=>setShowCompany(false)}/>}
