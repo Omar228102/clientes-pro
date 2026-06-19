@@ -1081,3 +1081,50 @@ export default function App() {
         {!dbLoading&&view==="add"&&<ClientForm onSave={addClient} onCancel={()=>setView("list")}/>}
         {!dbLoading&&view==="edit"&&selected&&<ClientForm initial={selected} onSave={async d=>{await updateClient({...selected,...d});setView("list");}} onCancel={()=>setView("list")}/>}
         {!dbLoading&&view==="cuenta"&&selected&&(
+          <CuentaCorriente
+            client={clients.find(c=>c.id===selected&&selected.id)||selected}
+            concepts={concepts} company={company}
+            onBack={()=>setView("list")}
+            onUpdate={updateClient}
+            onSaveRecibo={saveRecibo}
+          />
+        )}
+        {!dbLoading&&view==="recibos"&&<RecibosView recibos={recibos} clients={clients} company={company} concepts={concepts} onDeleteRecibo={deleteRecibo} onSaveRecibo={saveRecibo} onUpdateClient={updateClient}/>}
+        {!dbLoading&&view==="pendientes"&&<MovimientosView clients={clients} status="pendiente" concepts={concepts} conceptsConfig={conceptsConfig} company={company} onUpdateClient={updateClient}/>}
+        {!dbLoading&&view==="cobrado"&&<MovimientosView clients={clients} status="pagado" concepts={concepts} conceptsConfig={conceptsConfig} company={company} onUpdateClient={updateClient}/>}
+        {!dbLoading&&view==="chart"&&<ChartView clients={clients} concepts={concepts} conceptsConfig={conceptsConfig}/>}
+      </div>
+      {showCompany&&<CompanyModal company={company} onSave={saveCompany} onClose={()=>setShowCompany(false)}/>}
+      {showConcepts&&<ConceptsModal concepts={concepts} conceptsConfig={conceptsConfig} onSave={saveConcepts} onClose={()=>setShowConcepts(false)}/>}
+    </div>
+  );
+}
+
+const S = {
+  root:{display:"flex",minHeight:"100vh",background:"#080d1a",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:"#e2e8f0"},
+  nav:{width:200,flexShrink:0,background:"rgba(10,18,35,0.98)",borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",flexDirection:"column",padding:"16px 12px",position:"sticky",top:0,height:"100vh",overflowY:"auto"},
+  navBtn:{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:8,border:"none",background:"none",color:"#475569",fontSize:13,fontWeight:500,cursor:"pointer",textAlign:"left",width:"100%"},
+  navActive:{background:"rgba(110,231,183,0.08)",color:"#6ee7b7",fontWeight:700},
+  main:{flex:1,padding:"24px 28px",overflowY:"auto",minHeight:"100vh"},
+  card:{background:"rgba(20,30,50,0.7)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"16px"},
+  field:{display:"flex",flexDirection:"column",gap:5},
+  lbl:{fontSize:10,color:"#475569",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em"},
+  inp:{background:"rgba(8,13,26,0.7)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:7,padding:"8px 12px",color:"#f1f5f9",fontSize:13,outline:"none"},
+  btn:{border:"none",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:600,cursor:"pointer"},
+  btnPrimary:{background:"linear-gradient(135deg,#6ee7b7,#3b82f6)",color:"#050a14"},
+  btnGhost:{background:"rgba(255,255,255,0.05)",color:"#64748b",border:"1px solid rgba(255,255,255,0.08)"},
+  btnWa:{background:"linear-gradient(135deg,#25d366,#128c7e)",color:"#fff"},
+  iconBtn:{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"4px 6px",borderRadius:6},
+  badge:{border:"none",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:600,cursor:"pointer"},
+  bPaid:{background:"rgba(110,231,183,0.1)",color:"#6ee7b7"},
+  bPend:{background:"rgba(252,165,165,0.1)",color:"#fca5a5"},
+  ctag:{display:"inline-flex",alignItems:"center",padding:"2px 8px",borderRadius:20,fontSize:11,fontWeight:600},
+  empty:{padding:36,textAlign:"center",color:"#334155",fontSize:13},
+  overlay:{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16},
+  modal:{background:"#0e1829",border:"1px solid rgba(255,255,255,0.09)",borderRadius:16,padding:24,width:"100%",maxHeight:"92vh",overflowY:"auto"},
+  modalHead:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8},
+  modalTitle:{fontWeight:800,fontSize:16,color:"#f1f5f9"},
+  xBtn:{background:"none",border:"none",color:"#475569",fontSize:17,cursor:"pointer"},
+  checkRow:{display:"flex",alignItems:"center",gap:8,padding:"6px 2px",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer"},
+  ticketPre:{background:"#050a14",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9,padding:14,fontSize:11,color:"#94a3b8",lineHeight:1.9,whiteSpace:"pre-wrap",fontFamily:"monospace",margin:0},
+};
