@@ -25,6 +25,7 @@ const CONCEPT_COLORS = ["#6ee7b7","#93c5fd","#fde68a","#f9a8d4","#c4b5fd","#fb92
 const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const MONTHS_SHORT = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const DEFAULT_COMPANY = { name:"", cuit:"", address:"", phone:"", email:"", web:"", extra:"" };
+const DEFAULT_GASTO_CATS = ["Alquiler","Servicios","Sueldos","Materiales","Viaticos","Impuestos","Otro"];
 
 const fmt = n => new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS"}).format(n||0);
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2);
@@ -878,41 +879,273 @@ function MovimientosView({ clients, status, concepts, conceptsConfig, company, o
   );
 }
 
-function ChartView({ clients, concepts, conceptsConfig }) {
+
+function GastosView({ gastos, gastoCats, clients, onSave, onDelete, onSaveCats }) {
+  const now = new Date();
+  const [filterMonth,setFilterMonth] = useState(now.getMonth());
+  const [filterYear,setFilterYear] = useState(now.getFullYear());
+  const [showForm,setShowForm] = useState(false);
+  const [editingGasto,setEditingGasto] = useState(null);
+  const [showCats,setShowCats] = useState(false);
+  const [f,setF] = useState({concepto:"",categoria:gastoCats[0]||"Otro",monto:"",fecha:today(),estado:"pendiente",tipo:"propio",clienteId:"",clienteNombre:""});
+  const set = k=>e=>setF({...f,[k]:e.target.value});
+
+  const filtered = gastos.filter(g=>{
+    const d=new Date(g.fecha);
+    return d.getMonth()===filterMonth&&d.getFullYear()===filterYear;
+  }).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+
+  const totalPagado = filtered.filter(g=>g.estado==="pagado").reduce((s,g)=>s+(g.monto||0),0);
+  const totalPendiente = filtered.filter(g=>g.estado==="pendiente").reduce((s,g)=>s+(g.monto||0),0);
+  const totalMes = filtered.reduce((s,g)=>s+(g.monto||0),0);
+  const propios = filtered.filter(g=>g.tipo==="propio");
+  const deClientes = filtered.filter(g=>g.tipo==="cliente");
+
+  const handleSave = async()=>{
+    if(!f.concepto||!f.monto)return alert("Completa concepto y monto.");
+    const g={...f,id:editingGasto?editingGasto.id:uid(),monto:parseFloat(f.monto),mes:new Date(f.fecha).getMonth(),anio:new Date(f.fecha).getFullYear()};
+    await onSave(g);
+    setShowForm(false);setEditingGasto(null);
+    setF({concepto:"",categoria:gastoCats[0]||"Otro",monto:"",fecha:today(),estado:"pendiente",tipo:"propio",clienteId:"",clienteNombre:""});
+  };
+  const startEdit = g=>{setEditingGasto(g);setF({...g,monto:String(g.monto)});setShowForm(true);};
+  const toggleEstado = async g=>await onSave({...g,estado:g.estado==="pagado"?"pendiente":"pagado"});
+
+  const CatManager = ()=>{
+    const [cats,setCats] = useState([...gastoCats]);
+    const [newCat,setNewCat] = useState("");
+    return (
+      <div style={S.overlay}>
+        <div style={{...S.modal,maxWidth:380}}>
+          <div style={S.modalHead}><span style={S.modalTitle}>Categorias de Gastos</span><button onClick={()=>setShowCats(false)} style={S.xBtn}>X</button></div>
+          <div style={{marginBottom:14}}>
+            {cats.map((c,i)=>(
+              <div key={c} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                <span style={{flex:1,fontSize:13,color:"#e2e8f0"}}>{c}</span>
+                <button onClick={()=>{if(cats.length>1)setCats(cats.filter(x=>x!==c));}} style={{...S.iconBtn,color:"#fca5a5",fontSize:12}}>X</button>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <input value={newCat} onChange={e=>setNewCat(e.target.value)} onKeyDown={e=>e.key==="Enter"&&newCat.trim()&&!cats.includes(newCat.trim())&&(setCats([...cats,newCat.trim()]),setNewCat(""))} placeholder="Nueva categoria..." style={{...S.inp,flex:1}}/>
+            <button onClick={()=>{if(newCat.trim()&&!cats.includes(newCat.trim())){setCats([...cats,newCat.trim()]);setNewCat("");}}} style={{...S.btn,...S.btnPrimary,padding:"8px 14px"}}>+</button>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>
+            <button onClick={()=>setShowCats(false)} style={{...S.btn,...S.btnGhost}}>Cancelar</button>
+            <button onClick={async()=>{await onSaveCats(cats);setShowCats(false);}} style={{...S.btn,...S.btnPrimary}}>Guardar</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const GastoRow = ({g,idx})=>(
+    <div style={{display:"grid",gridTemplateColumns:"90px 1fr 2fr 100px 100px 110px 70px",padding:"9px 14px",borderBottom:"1px solid rgba(255,255,255,0.03)",background:idx%2===0?"rgba(15,23,42,0.2)":"transparent",alignItems:"center",gap:8}}>
+      <span style={{...S.badge,background:g.tipo==="propio"?"rgba(147,197,253,0.12)":"rgba(253,230,138,0.12)",color:g.tipo==="propio"?"#93c5fd":"#fde68a",fontSize:10,textAlign:"center"}}>{g.tipo==="propio"?"Propio":"Cliente"}</span>
+      <span style={{...S.ctag,background:"rgba(148,163,184,0.15)",color:"#94a3b8",fontSize:10}}>{g.categoria}</span>
+      <div>
+        <div style={{fontSize:12,color:"#e2e8f0",fontWeight:600}}>{g.concepto}</div>
+        {g.clienteNombre&&<div style={{fontSize:10,color:"#475569"}}>{g.clienteNombre}</div>}
+      </div>
+      <span style={{fontWeight:700,color:"#fca5a5",fontSize:12}}>{fmt(g.monto)}</span>
+      <span style={{fontSize:11,color:"#475569"}}>{g.fecha}</span>
+      <button onClick={()=>toggleEstado(g)} style={{...S.badge,...(g.estado==="pagado"?S.bPaid:S.bPend),fontSize:10}}>
+        {g.estado==="pagado"?"Pagado":"Pendiente"}
+      </button>
+      <div style={{display:"flex",gap:4}}>
+        <button onClick={()=>startEdit(g)} style={{...S.iconBtn,color:"#fde68a",fontSize:12}}>E</button>
+        <button onClick={()=>{if(window.confirm("Eliminar?"))onDelete(g.id);}} style={{...S.iconBtn,color:"#fca5a5",fontSize:12}}>X</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <h2 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>Gastos</h2>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <select value={filterMonth} onChange={e=>setFilterMonth(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>{MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
+          <select value={filterYear} onChange={e=>setFilterYear(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>{[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}</select>
+          <button onClick={()=>setShowCats(true)} style={{...S.btn,...S.btnGhost,fontSize:12,padding:"6px 12px"}}>Categorias</button>
+          <button onClick={()=>{setEditingGasto(null);setF({concepto:"",categoria:gastoCats[0]||"Otro",monto:"",fecha:today(),estado:"pendiente",tipo:"propio",clienteId:"",clienteNombre:""});setShowForm(!showForm);}} style={{...S.btn,...S.btnPrimary}}>+ Nuevo Gasto</button>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:16}}>
+        {[["Total mes",fmt(totalMes),"#fca5a5"],["Pagado",fmt(totalPagado),"#6ee7b7"],["Pendiente",fmt(totalPendiente),"#fde68a"],["Movimientos",filtered.length,"#94a3b8"]].map(([l,v,c])=>(
+          <div key={l} style={{...S.card,padding:"12px 14px"}}>
+            <div style={{fontWeight:800,fontSize:17,color:c}}>{v}</div>
+            <div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>{l} — {MONTHS[filterMonth]}</div>
+          </div>
+        ))}
+      </div>
+
+      {showForm&&(
+        <div style={{...S.card,marginBottom:16}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <div style={S.field}><label style={S.lbl}>Tipo</label>
+              <select value={f.tipo} onChange={set("tipo")} style={S.inp}>
+                <option value="propio">Gasto propio</option>
+                <option value="cliente">Gasto de cliente</option>
+              </select>
+            </div>
+            <div style={S.field}><label style={S.lbl}>Categoria</label>
+              <select value={f.categoria} onChange={set("categoria")} style={S.inp}>{gastoCats.map(c=><option key={c}>{c}</option>)}</select>
+            </div>
+            {f.tipo==="cliente"&&(
+              <div style={{...S.field,gridColumn:"1/-1"}}><label style={S.lbl}>Cliente</label>
+                <select value={f.clienteId} onChange={e=>{const c=clients.find(x=>x.id===e.target.value);setF({...f,clienteId:e.target.value,clienteNombre:c?c.name:"" });}} style={S.inp}>
+                  <option value="">Seleccionar cliente...</option>
+                  {[...clients].sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div style={{...S.field,gridColumn:"1/-1"}}><label style={S.lbl}>Concepto / Descripcion</label>
+              <input value={f.concepto} onChange={set("concepto")} placeholder="Ej. Alquiler oficina junio" style={S.inp}/>
+            </div>
+            <div style={S.field}><label style={S.lbl}>Monto ($)</label>
+              <input type="number" value={f.monto} onChange={set("monto")} placeholder="0.00" style={S.inp}/>
+            </div>
+            <div style={S.field}><label style={S.lbl}>Fecha</label>
+              <input type="date" value={f.fecha} onChange={set("fecha")} style={S.inp}/>
+            </div>
+            <div style={S.field}><label style={S.lbl}>Estado</label>
+              <select value={f.estado} onChange={set("estado")} style={S.inp}>
+                <option value="pendiente">Pendiente</option>
+                <option value="pagado">Pagado</option>
+              </select>
+            </div>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+            <button onClick={()=>{setShowForm(false);setEditingGasto(null);}} style={{...S.btn,...S.btnGhost}}>Cancelar</button>
+            <button onClick={handleSave} style={{...S.btn,...S.btnPrimary}}>{editingGasto?"Guardar cambios":"+ Agregar gasto"}</button>
+          </div>
+        </div>
+      )}
+
+      {filtered.length===0&&!showForm&&<div style={S.empty}>Sin gastos en {MONTHS[filterMonth]} {filterYear}</div>}
+
+      {propios.length>0&&(
+        <div style={{...S.card,padding:0,overflow:"hidden",marginBottom:12}}>
+          <div style={{padding:"8px 14px",background:"rgba(147,197,253,0.08)",borderBottom:"1px solid rgba(147,197,253,0.12)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:11,fontWeight:700,color:"#93c5fd",textTransform:"uppercase",letterSpacing:"0.06em"}}>Gastos propios ({propios.length})</span>
+            <span style={{fontWeight:800,color:"#93c5fd",fontSize:13}}>{fmt(propios.reduce((s,g)=>s+(g.monto||0),0))}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"90px 1fr 2fr 100px 100px 110px 70px",padding:"7px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)",gap:8}}>
+            {["Tipo","Cat.","Concepto","Monto","Fecha","Estado",""].map(h=><div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>)}
+          </div>
+          {propios.map((g,idx)=><GastoRow key={g.id} g={g} idx={idx}/>)}
+        </div>
+      )}
+
+      {deClientes.length>0&&(
+        <div style={{...S.card,padding:0,overflow:"hidden"}}>
+          <div style={{padding:"8px 14px",background:"rgba(253,230,138,0.06)",borderBottom:"1px solid rgba(253,230,138,0.1)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:11,fontWeight:700,color:"#fde68a",textTransform:"uppercase",letterSpacing:"0.06em"}}>Gastos de clientes ({deClientes.length})</span>
+            <span style={{fontWeight:800,color:"#fde68a",fontSize:13}}>{fmt(deClientes.reduce((s,g)=>s+(g.monto||0),0))}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"90px 1fr 2fr 100px 100px 110px 70px",padding:"7px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)",gap:8}}>
+            {["Tipo","Cat.","Concepto","Monto","Fecha","Estado",""].map(h=><div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>)}
+          </div>
+          {deClientes.map((g,idx)=><GastoRow key={g.id} g={g} idx={idx}/>)}
+        </div>
+      )}
+
+      {showCats&&<CatManager/>}
+    </div>
+  );
+}
+
+function ChartView({ clients, concepts, conceptsConfig, gastos }) {
   const gravados = concepts.filter(c=>(conceptsConfig||{})[c]!=="no_gravado");
   const [chartType,setChartType] = useState("bar");
   const [year,setYear] = useState(new Date().getFullYear());
+
   const monthlyData = useMemo(()=>MONTHS_SHORT.map((m,mi)=>{
-    const row={month:m};let total=0;
+    const row={month:m};let totalIng=0;let totalGasto=0;
     gravados.forEach(c=>{
       let sum=0;
       clients.forEach(cl=>(cl.items||[]).forEach(item=>{
         const d=new Date(item.date);
         if(d.getFullYear()===year&&d.getMonth()===mi&&item.concept===c&&item.status==="pagado")sum+=item.amount;
       }));
-      if(sum>0)row[c]=sum;total+=sum;
-    });row.Total=total;return row;
-  }),[clients,year,concepts]);
+      if(sum>0)row[c]=sum;totalIng+=sum;
+    });
+    (gastos||[]).forEach(g=>{
+      const d=new Date(g.fecha);
+      if(d.getFullYear()===year&&d.getMonth()===mi&&g.estado==="pagado")totalGasto+=g.monto||0;
+    });
+    row.Ingresos=totalIng;row.Gastos=totalGasto;row.Total=totalIng;
+    return row;
+  }),[clients,gastos,year,concepts]);
+
   const active = gravados.filter(c=>monthlyData.some(r=>r[c]));
   const totals = gravados.map(c=>({concept:c,color:CONCEPT_COLORS[concepts.indexOf(c)%CONCEPT_COLORS.length],total:clients.reduce((s,cl)=>s+(cl.items||[]).filter(i=>i.concept===c&&i.status==="pagado").reduce((a,b)=>a+(b.amount||0),0),0)})).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
   const grand = totals.reduce((s,c)=>s+c.total,0);
-  const Tip = ({active:a,payload,label})=>a&&payload&&payload.length?(<div style={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,padding:"10px 14px"}}><div style={{fontWeight:700,marginBottom:6,color:"#f1f5f9",fontSize:13}}>{label}</div>{payload.map(p=><div key={p.name} style={{display:"flex",justifyContent:"space-between",gap:14,fontSize:12}}><span style={{color:getColor(p.name,concepts)}}>{p.name}</span><span style={{fontWeight:700,color:"#f1f5f9"}}>{fmt(p.value)}</span></div>)}</div>):null;
+
+  // Variaciones mes a mes
+  const currentMonth = new Date().getMonth();
+  const prevMonth = currentMonth===0?11:currentMonth-1;
+  const curIng = monthlyData[currentMonth]?.Ingresos||0;
+  const prevIng = monthlyData[prevMonth]?.Ingresos||0;
+  const curGasto = monthlyData[currentMonth]?.Gastos||0;
+  const prevGasto = monthlyData[prevMonth]?.Gastos||0;
+  const varIng = prevIng>0?((curIng-prevIng)/prevIng*100):null;
+  const varGasto = prevGasto>0?((curGasto-prevGasto)/prevGasto*100):null;
+  const resultado = curIng - curGasto;
+
+  const Tip = ({active:a,payload,label})=>a&&payload&&payload.length?(<div style={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,padding:"10px 14px"}}><div style={{fontWeight:700,marginBottom:6,color:"#f1f5f9",fontSize:13}}>{label}</div>{payload.map(p=><div key={p.name} style={{display:"flex",justifyContent:"space-between",gap:14,fontSize:12}}><span style={{color:p.color||getColor(p.name,concepts)}}>{p.name}</span><span style={{fontWeight:700,color:"#f1f5f9"}}>{fmt(p.value)}</span></div>)}</div>):null;
+
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
         <h2 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>Analisis de Ingresos</h2>
         <div style={{display:"flex",gap:8}}>
           <select value={year} onChange={e=>setYear(Number(e.target.value))} style={{...S.inp,padding:"7px 12px",fontSize:13,width:"auto"}}>{[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}</select>
           <button onClick={()=>setChartType("bar")} style={{...S.btn,...(chartType==="bar"?S.btnPrimary:S.btnGhost),padding:"7px 14px",fontSize:13}}>Barras</button>
           <button onClick={()=>setChartType("line")} style={{...S.btn,...(chartType==="line"?S.btnPrimary:S.btnGhost),padding:"7px 14px",fontSize:13}}>Lineas</button>
+          <button onClick={()=>setChartType("ingvsgasto")} style={{...S.btn,...(chartType==="ingvsgasto"?S.btnPrimary:S.btnGhost),padding:"7px 14px",fontSize:13}}>Ing vs Gasto</button>
         </div>
       </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:16}}>
+        <div style={{...S.card,padding:"12px 14px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div><div style={{fontWeight:800,fontSize:17,color:"#6ee7b7"}}>{fmt(curIng)}</div><div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>Ingresos {MONTHS_SHORT[currentMonth]}</div></div>
+            {varIng!==null&&<div style={{fontSize:11,fontWeight:700,color:varIng>=0?"#6ee7b7":"#fca5a5",background:varIng>=0?"rgba(110,231,183,0.1)":"rgba(252,165,165,0.1)",padding:"2px 7px",borderRadius:12}}>{varIng>=0?"+":""}{varIng.toFixed(1)}%</div>}
+          </div>
+        </div>
+        <div style={{...S.card,padding:"12px 14px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div><div style={{fontWeight:800,fontSize:17,color:"#fca5a5"}}>{fmt(curGasto)}</div><div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>Gastos {MONTHS_SHORT[currentMonth]}</div></div>
+            {varGasto!==null&&<div style={{fontSize:11,fontWeight:700,color:varGasto<=0?"#6ee7b7":"#fca5a5",background:varGasto<=0?"rgba(110,231,183,0.1)":"rgba(252,165,165,0.1)",padding:"2px 7px",borderRadius:12}}>{varGasto>=0?"+":""}{varGasto.toFixed(1)}%</div>}
+          </div>
+        </div>
+        <div style={{...S.card,padding:"12px 14px"}}>
+          <div style={{fontWeight:800,fontSize:17,color:resultado>=0?"#6ee7b7":"#fca5a5"}}>{fmt(resultado)}</div>
+          <div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>Resultado {MONTHS_SHORT[currentMonth]}</div>
+        </div>
+      </div>
+
       <div style={{...S.card,marginBottom:20}}>
-        <div style={{fontSize:12,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4,fontWeight:700}}>Ingresos cobrados {year}</div>
-        <div style={{fontSize:11,color:"#475569",marginBottom:14}}>Solo conceptos gravados ({gravados.length} de {concepts.length})</div>
-        {!monthlyData.some(r=>r.Total>0)?<div style={S.empty}>Sin datos para {year}</div>:(
+        <div style={{fontSize:12,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4,fontWeight:700}}>
+          {chartType==="ingvsgasto"?"Ingresos vs Gastos":"Ingresos cobrados"} {year}
+        </div>
+        <div style={{fontSize:11,color:"#475569",marginBottom:14}}>
+          {chartType==="ingvsgasto"?"Comparativa mensual":"Solo conceptos gravados ("+gravados.length+" de "+concepts.length+")"}
+        </div>
+        {!monthlyData.some(r=>r.Total>0)&&!monthlyData.some(r=>r.Gastos>0)?<div style={S.empty}>Sin datos para {year}</div>:(
           <ResponsiveContainer width="100%" height={280}>
-            {chartType==="bar"?(
+            {chartType==="ingvsgasto"?(
+              <BarChart data={monthlyData} barSize={12}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
+                <XAxis dataKey="month" tick={{fill:"#64748b",fontSize:11}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fill:"#64748b",fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>v>=1000?"$"+(v/1000).toFixed(0)+"k":"$"+v}/>
+                <Tooltip content={<Tip/>}/><Legend wrapperStyle={{fontSize:11,paddingTop:8}}/>
+                <Bar dataKey="Ingresos" fill="#6ee7b7" radius={[4,4,0,0]}/>
+                <Bar dataKey="Gastos" fill="#fca5a5" radius={[4,4,0,0]}/>
+              </BarChart>
+            ):chartType==="bar"?(
               <BarChart data={monthlyData} barSize={14}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
                 <XAxis dataKey="month" tick={{fill:"#64748b",fontSize:11}} axisLine={false} tickLine={false}/>
@@ -946,6 +1179,7 @@ function ChartView({ clients, concepts, conceptsConfig }) {
   );
 }
 
+
 export default function App() {
   const [user,setUser] = useState(null);
   const [authLoading,setAuthLoading] = useState(true);
@@ -955,6 +1189,8 @@ export default function App() {
   const [company,setCompany] = useState(DEFAULT_COMPANY);
   const [concepts,setConcepts] = useState(DEFAULT_CONCEPTS);
   const [conceptsConfig,setConceptsConfig] = useState(DEFAULT_CONCEPTS_CONFIG);
+  const [gastos,setGastos] = useState([]);
+  const [gastoCats,setGastoCats] = useState(DEFAULT_GASTO_CATS);
   const [view,setView] = useState("chart");
   const [selected,setSelected] = useState(null);
   const [search,setSearch] = useState("");
@@ -970,7 +1206,9 @@ export default function App() {
     const u2=onSnapshot(doc(db,"users",user.uid,"settings","company"),s=>{if(s.exists())setCompany(s.data());});
     const u3=onSnapshot(doc(db,"users",user.uid,"settings","concepts"),s=>{if(s.exists()){if(s.data().list)setConcepts(s.data().list);if(s.data().config)setConceptsConfig(s.data().config);}});
     const u4=onSnapshot(collection(db,"users",user.uid,"recibos"),s=>{setRecibos(s.docs.map(d=>({id:d.id,...d.data()})));});
-    return()=>{u1();u2();u3();u4();};
+    const u5=onSnapshot(collection(db,"users",user.uid,"gastos"),s=>{setGastos(s.docs.map(d=>({id:d.id,...d.data()})));});
+    const u6=onSnapshot(doc(db,"users",user.uid,"settings","gastoCats"),s=>{if(s.exists()&&s.data().list)setGastoCats(s.data().list);});
+    return()=>{u1();u2();u3();u4();u5();u6();};
   },[user]);
 
   const login=async()=>{setAuthLoading(true);try{await signInWithPopup(auth,new GoogleAuthProvider());}catch{setAuthLoading(false);}};
@@ -982,12 +1220,16 @@ export default function App() {
   const saveCompany=async p=>{setCompany(p);await setDoc(doc(db,"users",user.uid,"settings","company"),p);setShowCompany(false);};
   const saveConcepts=async(l,cfg)=>{setConcepts(l);setConceptsConfig(cfg||DEFAULT_CONCEPTS_CONFIG);await setDoc(doc(db,"users",user.uid,"settings","concepts"),{list:l,config:cfg||DEFAULT_CONCEPTS_CONFIG});setShowConcepts(false);};
   const saveRecibo=async r=>await setDoc(doc(db,"users",user.uid,"recibos",r.id),r);
+  const saveGasto=async g=>await setDoc(doc(db,"users",user.uid,"gastos",g.id),g);
+  const deleteGasto=async id=>await deleteDoc(doc(db,"users",user.uid,"gastos",id));
+  const saveGastoCats=async l=>{setGastoCats(l);await setDoc(doc(db,"users",user.uid,"settings","gastoCats"),{list:l});};
   const deleteRecibo=async id=>await deleteDoc(doc(db,"users",user.uid,"recibos",id));
 
   if(authLoading)return<div style={{minHeight:"100vh",background:"#080d1a",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#6ee7b7",fontSize:40}}>◈</span></div>;
   if(!user)return<LoginScreen onLogin={login} loading={authLoading}/>;
 
   const allPaid=clients.reduce((s,c)=>s+paidItems(c.items),0);
+  const totalGastosDelMes=gastos.filter(g=>g.mes===new Date().getMonth()&&g.anio===new Date().getFullYear()).reduce((s,g)=>s+(g.monto||0),0);
   const allPend=clients.reduce((s,c)=>s+pendingItems(c.items),0);
   const sorted=[...clients].filter(c=>(c.name||"").toLowerCase().includes(search.toLowerCase())||(c.cuit||"").includes(search)).sort((a,b)=>{
     if(sortBy==="name")return(a.name||"").localeCompare(b.name||"");
@@ -996,7 +1238,7 @@ export default function App() {
     return 0;
   });
 
-  const NAV=[["Clientes","list"],["Recibos","recibos"],["Pendientes","pendientes"],["Cobrado","cobrado"],["Analisis","chart"]];
+  const NAV=[["Clientes","list"],["Recibos","recibos"],["Pendientes","pendientes"],["Cobrado","cobrado"],["Gastos","gastos"],["Analisis","chart"]];
 
   return (
     <div style={S.root}>
@@ -1017,7 +1259,7 @@ export default function App() {
           </button>
         ))}
         <div style={{margin:"14px 0",borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:14}}>
-          {[["Cobrado",fmt(allPaid),"#6ee7b7"],["Pendiente",fmt(allPend),"#fca5a5"],["Clientes",clients.length,"#93c5fd"]].map(([l,v,c])=>(
+          {[["Cobrado",fmt(allPaid),"#6ee7b7"],["Pendiente",fmt(allPend),"#fca5a5"],["Gastos mes",fmt(totalGastosDelMes),"#fde68a"],["Clientes",clients.length,"#94a3b8"]].map(([l,v,c])=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:11}}><span style={{color:"#475569"}}>{l}</span><span style={{fontWeight:700,color:c}}>{v}</span></div>
           ))}
         </div>
@@ -1089,10 +1331,11 @@ export default function App() {
             onSaveRecibo={saveRecibo}
           />
         )}
+        {!dbLoading&&view==="gastos"&&<GastosView gastos={gastos} gastoCats={gastoCats} clients={clients} onSave={saveGasto} onDelete={deleteGasto} onSaveCats={saveGastoCats}/>}
         {!dbLoading&&view==="recibos"&&<RecibosView recibos={recibos} clients={clients} company={company} concepts={concepts} onDeleteRecibo={deleteRecibo} onSaveRecibo={saveRecibo} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="pendientes"&&<MovimientosView clients={clients} status="pendiente" concepts={concepts} conceptsConfig={conceptsConfig} company={company} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="cobrado"&&<MovimientosView clients={clients} status="pagado" concepts={concepts} conceptsConfig={conceptsConfig} company={company} onUpdateClient={updateClient}/>}
-        {!dbLoading&&view==="chart"&&<ChartView clients={clients} concepts={concepts} conceptsConfig={conceptsConfig}/>}
+        {!dbLoading&&view==="chart"&&<ChartView clients={clients} concepts={concepts} conceptsConfig={conceptsConfig} gastos={gastos}/>}
       </div>
       {showCompany&&<CompanyModal company={company} onSave={saveCompany} onClose={()=>setShowCompany(false)}/>}
       {showConcepts&&<ConceptsModal concepts={concepts} conceptsConfig={conceptsConfig} onSave={saveConcepts} onClose={()=>setShowConcepts(false)}/>}
