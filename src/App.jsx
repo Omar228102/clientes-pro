@@ -31,78 +31,94 @@ const pendingItems = (items=[]) => items.filter(i=>i.status==="pendiente").reduc
 const formatCuit = v => { const n=v.replace(/\D/g,"").slice(0,11); if(n.length<=2)return n; if(n.length<=10)return n.slice(0,2)+"-"+n.slice(2); return n.slice(0,2)+"-"+n.slice(2,10)+"-"+n.slice(10); };
 const getColor = (concept, concepts) => CONCEPT_COLORS[concepts.indexOf(concept) % CONCEPT_COLORS.length];
 
-function generatePDF(client, company, items, folio, status) {
+function buildDocHTML(client, company, items, folio, tipo) {
   const total = items.reduce((s,i)=>s+(i.amount||0),0);
   const nowStr = new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"long",year:"numeric"});
-  const rows = items.map(i=>`
-    <tr>
-      <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;font-weight:600">${i.concept}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#94a3b8;font-style:italic">${i.description||""}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;text-align:right;font-weight:700">${fmt(i.amount)}</td>
-    </tr>
-`).join("");
-  const isPend = !status || status==="pendiente";
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-    *{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;color:#111;}
-    .page{max-width:700px;margin:0 auto;padding:40px;}
-    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;padding-bottom:24px;border-bottom:3px solid #0f172a;}
-    .company-name{font-size:22px;font-weight:800;color:#0f172a;margin-bottom:4px;}
-    .company-detail{font-size:11px;color:#64748b;line-height:1.8;}
-    .recibo-box{text-align:right;}
-    .recibo-title{font-size:28px;font-weight:900;color:#0f172a;letter-spacing:-1px;}
-    .recibo-num{font-size:13px;color:#64748b;margin-top:4px;}
-    .recibo-date{font-size:13px;color:#64748b;}
-    .estado{display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;margin-top:6px;background:${isPend?"#fef3c7":"#d1fae5"};color:${isPend?"#92400e":"#065f46"};}
-    .client-section{background:#f8fafc;border-radius:8px;padding:16px 20px;margin-bottom:28px;}
-    .client-label{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;margin-bottom:8px;}
-    .client-name{font-size:16px;font-weight:700;color:#0f172a;margin-bottom:4px;}
-    .client-detail{font-size:12px;color:#64748b;line-height:1.8;}
-    table{width:100%;border-collapse:collapse;margin-bottom:24px;}
-    thead tr{background:#0f172a;}
-    thead th{padding:10px 12px;text-align:left;font-size:11px;color:#fff;text-transform:uppercase;letter-spacing:0.06em;}
-    thead th:last-child{text-align:right;}
-    .total-row td{padding:12px;font-weight:800;font-size:15px;background:#f8fafc;}
-    .total-row td:last-child{text-align:right;font-size:18px;}
-    .footer{margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#94a3b8;}
-    @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-  </style></head><body><div class="page">
+  const rows = items.map(i=>"<tr><td style='padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;font-weight:600'>"+i.concept+"</td><td style='padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b'>"+( i.description||"")+"</td><td style='padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;text-align:right;font-weight:700'>"+fmt(i.amount)+"</td></tr>").join("");
+  const esRecibo = tipo==="recibo";
+  const titulo = esRecibo ? "RECIBO" : "RESUMEN MENSUAL";
+  const labelCliente = esRecibo ? "Recibimos de:" : "Para:";
+  const footer = esRecibo ? "Gracias por su confianza" : "Una vez acreditado el pago se emitira el recibo correspondiente.";
+  return `<div class="slip">
     <div class="header">
-      <div>
-        <div class="company-name">${company.name||"Mi Empresa"}</div>
-        <div class="company-detail">
-          ${company.cuit?"CUIT: "+company.cuit+"<br>":""}
-          ${company.address?company.address+"<br>":""}
-          ${company.phone?"Tel: "+company.phone+"<br>":""}
-          ${company.email?company.email+"<br>":""}
-          ${company.web?company.web+"<br>":""}
-          ${company.extra?company.extra:""}
-        </div>
+      <div><div class="company-name">${company.name||"Mi Empresa"}</div>
+        <div class="company-detail">${company.cuit?"CUIT: "+company.cuit+"<br>":""}${company.address?company.address+"<br>":""}${company.phone?"Tel: "+company.phone+"<br>":""}${company.email?company.email:""}${company.extra?"<br>"+company.extra:""}</div>
       </div>
-      <div class="recibo-box">
-        <div class="recibo-title">RESUMEN MENSUAL</div>
-        <div class="recibo-date">${nowStr}</div>
-      </div>
+      <div class="right-box"><div class="doc-title">${titulo}</div><div class="doc-date">${nowStr}</div></div>
     </div>
     <div class="client-section">
-      <div class="client-label">Para:</div>
+      <div class="client-label">${labelCliente}</div>
       <div class="client-name">${client.name}</div>
-      <div class="client-detail">
-        ${client.cuit?"CUIT: "+client.cuit+"<br>":""}
-        ${client.condicionFiscal?"Condicion: "+client.condicionFiscal+"<br>":""}
-        ${client.email?client.email:""}
-      </div>
+      <div class="client-detail">${client.cuit?"CUIT: "+client.cuit+"<br>":""}${client.condicionFiscal?client.condicionFiscal:""}</div>
     </div>
-    <table>
-      <thead><tr><th>Concepto</th><th>Detalle</th><th style="text-align:right">Importe</th></tr></thead>
+    <table><thead><tr><th>Concepto</th><th>Detalle</th><th style="text-align:right">Importe</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr class="total-row"><td colspan="2">TOTAL</td><td>${fmt(total)}</td></tr></tfoot>
     </table>
-    <div class="footer">${company.name||""} ${company.extra?"&middot; "+company.extra:""}<br>Una vez acreditado el pago se emitira el recibo correspondiente.</div>
-  </div></body></html>`;
+    <div class="footer">${company.name||""}<br>${footer}</div>
+  </div>`;
+}
+
+function buildPageHTML(slipContent, doubleCopy) {
+  const css = `*{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:Arial,sans-serif;color:#111;background:#fff;}
+    .slip{width:${doubleCopy?"100%":"148mm"};padding:16px 20px;${doubleCopy?"":"margin:auto;"}}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;padding-bottom:12px;border-bottom:2px solid #0f172a;}
+    .company-name{font-size:13px;font-weight:800;color:#0f172a;margin-bottom:2px;}
+    .company-detail{font-size:9px;color:#64748b;line-height:1.7;}
+    .right-box{text-align:right;}
+    .doc-title{font-size:18px;font-weight:900;color:#0f172a;letter-spacing:-0.5px;}
+    .doc-date{font-size:9px;color:#64748b;margin-top:2px;}
+    .client-section{background:#f8fafc;border-radius:6px;padding:8px 12px;margin-bottom:14px;}
+    .client-label{font-size:8px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;margin-bottom:3px;}
+    .client-name{font-size:12px;font-weight:700;color:#0f172a;margin-bottom:2px;}
+    .client-detail{font-size:9px;color:#64748b;}
+    table{width:100%;border-collapse:collapse;margin-bottom:12px;}
+    thead tr{background:#0f172a;}
+    thead th{padding:5px 10px;text-align:left;font-size:9px;color:#fff;text-transform:uppercase;letter-spacing:0.05em;}
+    thead th:last-child{text-align:right;}
+    .total-row td{padding:7px 10px;font-weight:800;font-size:12px;background:#f8fafc;}
+    .total-row td:last-child{text-align:right;font-size:14px;}
+    .footer{padding-top:10px;border-top:1px solid #e2e8f0;text-align:center;font-size:8px;color:#94a3b8;line-height:1.6;}
+    ${doubleCopy?".wrapper{display:grid;grid-template-columns:1fr 1fr;gap:0;height:100vh;}.divider{border-left:1px dashed #cbd5e1;position:absolute;left:50%;top:20px;bottom:20px;}":""}
+    @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}${doubleCopy?"@page{size:A4 portrait;margin:10mm;}":"@page{size:A5 portrait;margin:8mm;}"}}`;
+  if(doubleCopy){
+    return "<!DOCTYPE html><html><head><meta charset='UTF-8'><style>"+css+"</style></head><body><div class='wrapper' style='position:relative'>"+slipContent+slipContent+"<div class='divider'></div></div></body></html>";
+  }
+  return "<!DOCTYPE html><html><head><meta charset='UTF-8'><style>"+css+"</style></head><body>"+slipContent+"</body></html>";
+}
+
+function generatePDF(client, company, items, folio, status) {
+  const tipo = (!status||status==="pendiente") ? "resumen" : "recibo";
+  const slip = buildDocHTML(client, company, items, folio, tipo);
+  const html = buildPageHTML(slip, false);
   const win = window.open("","_blank");
   win.document.write(html);
   win.document.close();
   win.focus();
+}
+
+function downloadPDF(client, company, items, folio, status) {
+  const tipo = (!status||status==="pendiente") ? "resumen" : "recibo";
+  const slip = buildDocHTML(client, company, items, folio, tipo);
+  const html = buildPageHTML(slip, false);
+  const blob = new Blob([html], {type:"text/html"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (tipo==="resumen"?"Resumen":"Recibo")+"_"+client.name.replace(/\s+/g,"_")+"_"+folio+".html";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function printDuplicate(client, company, items, folio, status) {
+  const tipo = (!status||status==="pendiente") ? "resumen" : "recibo";
+  const slip = buildDocHTML(client, company, items, folio, tipo);
+  const html = buildPageHTML(slip, true);
+  const win = window.open("","_blank");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(()=>win.print(), 400);
 }
 
 function printList({ title, company, headers, rows, totals }) {
@@ -425,6 +441,8 @@ function ReciboModal({ client, company, concepts, onClose, onSaveRecibo }) {
     if(onSaveRecibo)await onSaveRecibo(recibo);
     setSaved(true);
     if(action==="pdf")generatePDF(client,company,chosen,folio,"pendiente");
+    else if(action==="download")downloadPDF(client,company,chosen,folio,"pendiente");
+    else if(action==="print2")printDuplicate(client,company,chosen,folio,"pendiente");
     else if(action==="whatsapp"){
       const txt="Recibo "+folio+" | "+nowDate.toLocaleDateString("es-AR")+"\nCliente: "+client.name+(client.cuit?"\nCUIT: "+client.cuit:"")+"\n"+chosen.map(i=>"- "+i.concept+(i.description?" - "+i.description:"")+": "+fmt(i.amount)).join("\n")+"\nTOTAL: "+fmt(total);
       window.open("https://wa.me/"+(client.phone||"").replace(/\D/g,"")+"?text="+encodeURIComponent(txt),"_blank");
@@ -474,8 +492,12 @@ function ReciboModal({ client, company, concepts, onClose, onSaveRecibo }) {
           <span style={{color:"#94a3b8",fontSize:13}}>{chosen.length} items</span>
           <span style={{fontWeight:800,fontSize:20,color:"#6ee7b7"}}>{fmt(total)}</span>
         </div>
-        <div style={{display:"flex",gap:8,marginBottom:10}}>
-          <button onClick={()=>handleEmit("pdf")} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",flex:1}}>PDF</button>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <button onClick={()=>handleEmit("pdf")} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",flex:1}}>Ver PDF</button>
+          <button onClick={()=>handleEmit("download")} style={{...S.btn,...S.btnGhost,flex:1}}>Descargar</button>
+        </div>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <button onClick={()=>handleEmit("print2")} style={{...S.btn,...S.btnGhost,flex:1}}>Imprimir x2</button>
           <button onClick={()=>handleEmit("copy")} style={{...S.btn,...S.btnGhost,flex:1}}>Copiar texto</button>
         </div>
         <button onClick={()=>handleEmit("whatsapp")} style={{...S.btn,...S.btnWa,width:"100%",textAlign:"center"}}>WhatsApp</button>
@@ -511,6 +533,8 @@ function ReciboEditor({ recibo, clients, concepts, company, onSave, onClose }) {
     const r = {id:recibo&&recibo.id||uid(),folio,date,month:d.getMonth(),year:d.getFullYear(),clientId:client.id,clientName:client.name,clientCuit:client.cuit||"",items:finalItems,total,status};
     await onSave(r,client,finalItems);
     if(action==="pdf")generatePDF(client,company,finalItems,folio,status);
+    else if(action==="download")downloadPDF(client,company,finalItems,folio,status);
+    else if(action==="print2")printDuplicate(client,company,finalItems,folio,status);
     else if(action==="whatsapp"){
       const txt="Recibo "+folio+" | "+date+"\nCliente: "+client.name+"\n"+finalItems.map(i=>"- "+i.concept+(i.description?" - "+i.description:"")+": "+fmt(i.amount)).join("\n")+"\nTOTAL: "+fmt(total)+" | "+(status==="pagado"?"COBRADO":"PENDIENTE");
       window.open("https://wa.me/"+(client.phone||"").replace(/\D/g,"")+"?text="+encodeURIComponent(txt),"_blank");
@@ -587,10 +611,14 @@ function ReciboEditor({ recibo, clients, concepts, company, onSave, onClose }) {
             </div>
           )}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
           <button onClick={()=>handleSave("save")} style={{...S.btn,...S.btnGhost,fontSize:12,padding:"9px"}}>Solo guardar</button>
-          <button onClick={()=>handleSave("pdf")} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",fontSize:12,padding:"9px"}}>Guardar + PDF</button>
-          <button onClick={()=>handleSave("whatsapp")} style={{...S.btn,...S.btnWa,fontSize:12,padding:"9px",textAlign:"center"}}>Guardar + WA</button>
+          <button onClick={()=>handleSave("pdf")} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",fontSize:12,padding:"9px"}}>Ver PDF</button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <button onClick={()=>handleSave("download")} style={{...S.btn,...S.btnGhost,fontSize:12,padding:"9px"}}>Descargar</button>
+          <button onClick={()=>handleSave("print2")} style={{...S.btn,...S.btnGhost,fontSize:12,padding:"9px"}}>Imprimir x2</button>
+          <button onClick={()=>handleSave("whatsapp")} style={{...S.btn,...S.btnWa,fontSize:12,padding:"9px",textAlign:"center"}}>WA</button>
         </div>
       </div>
     </div>
@@ -706,6 +734,8 @@ function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSa
             <div style={{fontWeight:800,color:"#6ee7b7",fontSize:14}}>{fmt(r.total)}</div>
             <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
               <button onClick={()=>generatePDF({name:r.clientName,cuit:r.clientCuit},company,r.items,r.folio,r.status)} style={{...S.btn,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",padding:"4px 8px",fontSize:11}}>PDF</button>
+              <button onClick={()=>downloadPDF({name:r.clientName,cuit:r.clientCuit},company,r.items,r.folio,r.status)} style={{...S.btn,...S.btnGhost,padding:"4px 8px",fontSize:11}}>⬇</button>
+              <button onClick={()=>printDuplicate({name:r.clientName,cuit:r.clientCuit},company,r.items,r.folio,r.status)} style={{...S.btn,...S.btnGhost,padding:"4px 8px",fontSize:11}}>x2</button>
               <button onClick={()=>{setEditingRecibo(r);setShowEditor(true);}} style={{...S.btn,...S.btnGhost,padding:"4px 8px",fontSize:11}}>Editar</button>
               <button onClick={()=>{if(window.confirm("Eliminar?"))onDeleteRecibo(r.id);}} style={{...S.iconBtn,color:"#fca5a5",fontSize:13}}>X</button>
             </div>
