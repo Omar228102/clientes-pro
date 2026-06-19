@@ -17,6 +17,10 @@ const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 
 const DEFAULT_CONCEPTS = ["Honorarios","Consultoria","Mantenimiento","Materiales","Traslado","Capacitacion","Otro"];
+const DEFAULT_CONCEPTS_CONFIG = {
+  "Honorarios":"gravado","Consultoria":"gravado","Mantenimiento":"gravado",
+  "Materiales":"no_gravado","Traslado":"no_gravado","Capacitacion":"gravado","Otro":"gravado"
+};
 const CONCEPT_COLORS = ["#6ee7b7","#93c5fd","#fde68a","#f9a8d4","#c4b5fd","#fb923c","#94a3b8","#67e8f9","#a78bfa","#fdba74"];
 const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const MONTHS_SHORT = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -34,56 +38,41 @@ const getColor = (concept, concepts) => CONCEPT_COLORS[concepts.indexOf(concept)
 function buildDocHTML(client, company, items, folio, tipo) {
   const total = items.reduce((s,i)=>s+(i.amount||0),0);
   const nowStr = new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"long",year:"numeric"});
-  const rows = items.map(i=>"<tr><td style='padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;font-weight:600'>"+i.concept+"</td><td style='padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b'>"+( i.description||"")+"</td><td style='padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;text-align:right;font-weight:700'>"+fmt(i.amount)+"</td></tr>").join("");
+  const rows = items.map(i=>"<tr><td style='padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;font-weight:600'>"+i.concept+"</td><td style='padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b'>"+(i.description||"")+"</td><td style='padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;text-align:right;font-weight:700'>"+fmt(i.amount)+"</td></tr>").join("");
   const esRecibo = tipo==="recibo";
   const titulo = esRecibo ? "RECIBO" : "RESUMEN MENSUAL";
   const labelCliente = esRecibo ? "Recibimos de:" : "Para:";
   const footer = esRecibo ? "Gracias por su confianza" : "Una vez acreditado el pago se emitira el recibo correspondiente.";
-  return `<div class="slip">
-    <div class="header">
-      <div><div class="company-name">${company.name||"Mi Empresa"}</div>
-        <div class="company-detail">${company.cuit?"CUIT: "+company.cuit+"<br>":""}${company.address?company.address+"<br>":""}${company.phone?"Tel: "+company.phone+"<br>":""}${company.email?company.email:""}${company.extra?"<br>"+company.extra:""}</div>
-      </div>
-      <div class="right-box"><div class="doc-title">${titulo}</div><div class="doc-date">${nowStr}</div></div>
-    </div>
-    <div class="client-section">
-      <div class="client-label">${labelCliente}</div>
-      <div class="client-name">${client.name}</div>
-      <div class="client-detail">${client.cuit?"CUIT: "+client.cuit+"<br>":""}${client.condicionFiscal?client.condicionFiscal:""}</div>
-    </div>
-    <table><thead><tr><th>Concepto</th><th>Detalle</th><th style="text-align:right">Importe</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr class="total-row"><td colspan="2">TOTAL</td><td>${fmt(total)}</td></tr></tfoot>
-    </table>
-    <div class="footer">${company.name||""}<br>${footer}</div>
-  </div>`;
+  return "<div class='slip'><div class='header'><div><div class='company-name'>"+(company.name||"Mi Empresa")+"</div><div class='company-detail'>"+(company.cuit?"CUIT: "+company.cuit+"<br>":"")+(company.address?company.address+"<br>":"")+(company.phone?"Tel: "+company.phone+"<br>":"")+(company.email?company.email:"")+(company.extra?"<br>"+company.extra:"")+"</div></div><div class='right-box'><div class='doc-title'>"+titulo+"</div><div class='doc-date'>"+nowStr+"</div></div></div><div class='client-section'><div class='client-label'>"+labelCliente+"</div><div class='client-name'>"+client.name+"</div><div class='client-detail'>"+(client.cuit?"CUIT: "+client.cuit+"<br>":"")+(client.condicionFiscal?client.condicionFiscal:"")+"</div></div><table><thead><tr><th>Concepto</th><th>Detalle</th><th style='text-align:right'>Importe</th></tr></thead><tbody>"+rows+"</tbody><tfoot><tr class='total-row'><td colspan='2'>TOTAL</td><td>"+fmt(total)+"</td></tr></tfoot></table><div class='footer'>"+(company.name||"")+"<br>"+footer+"</div></div>";
 }
 
 function buildPageHTML(slipContent, doubleCopy) {
-  const css = `*{box-sizing:border-box;margin:0;padding:0;}
-    body{font-family:Arial,sans-serif;color:#111;background:#fff;}
-    .slip{width:${doubleCopy?"100%":"148mm"};padding:16px 20px;${doubleCopy?"":"margin:auto;"}}
-    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;padding-bottom:12px;border-bottom:2px solid #0f172a;}
-    .company-name{font-size:13px;font-weight:800;color:#0f172a;margin-bottom:2px;}
-    .company-detail{font-size:9px;color:#64748b;line-height:1.7;}
-    .right-box{text-align:right;}
-    .doc-title{font-size:18px;font-weight:900;color:#0f172a;letter-spacing:-0.5px;}
-    .doc-date{font-size:9px;color:#64748b;margin-top:2px;}
-    .client-section{background:#f8fafc;border-radius:6px;padding:8px 12px;margin-bottom:14px;}
-    .client-label{font-size:8px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;margin-bottom:3px;}
-    .client-name{font-size:12px;font-weight:700;color:#0f172a;margin-bottom:2px;}
-    .client-detail{font-size:9px;color:#64748b;}
-    table{width:100%;border-collapse:collapse;margin-bottom:12px;}
-    thead tr{background:#0f172a;}
-    thead th{padding:5px 10px;text-align:left;font-size:9px;color:#fff;text-transform:uppercase;letter-spacing:0.05em;}
-    thead th:last-child{text-align:right;}
-    .total-row td{padding:7px 10px;font-weight:800;font-size:12px;background:#f8fafc;}
-    .total-row td:last-child{text-align:right;font-size:14px;}
-    .footer{padding-top:10px;border-top:1px solid #e2e8f0;text-align:center;font-size:8px;color:#94a3b8;line-height:1.6;}
-    ${doubleCopy?".wrapper{display:grid;grid-template-columns:1fr 1fr;gap:0;height:100vh;}.divider{border-left:1px dashed #cbd5e1;position:absolute;left:50%;top:20px;bottom:20px;}":""}
-    @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}${doubleCopy?"@page{size:A4 portrait;margin:10mm;}":"@page{size:A5 portrait;margin:8mm;}"}}`;
+  const slipStyle = doubleCopy ? "flex:1;padding:12px 20px;overflow:hidden;" : "width:148mm;padding:16px 20px;margin:auto;";
+  const css = "*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;color:#111;background:#fff;}"
+    +".slip{"+slipStyle+"}"
+    +(doubleCopy?".wrapper{display:flex;flex-direction:column;height:100vh;}.divider-h{border-top:1px dashed #cbd5e1;margin:0 16px;}":"")
+    +".header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid #0f172a;}"
+    +".company-name{font-size:13px;font-weight:800;color:#0f172a;margin-bottom:2px;}"
+    +".company-detail{font-size:9px;color:#64748b;line-height:1.7;}"
+    +".right-box{text-align:right;}"
+    +".doc-title{font-size:17px;font-weight:900;color:#0f172a;letter-spacing:-0.5px;}"
+    +".doc-date{font-size:9px;color:#64748b;margin-top:2px;}"
+    +".client-section{background:#f8fafc;border-radius:6px;padding:7px 12px;margin-bottom:12px;}"
+    +".client-label{font-size:8px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;margin-bottom:3px;}"
+    +".client-name{font-size:12px;font-weight:700;color:#0f172a;margin-bottom:2px;}"
+    +".client-detail{font-size:9px;color:#64748b;}"
+    +"table{width:100%;border-collapse:collapse;margin-bottom:10px;}"
+    +"thead tr{background:#0f172a;}"
+    +"thead th{padding:5px 10px;text-align:left;font-size:9px;color:#fff;text-transform:uppercase;letter-spacing:0.05em;}"
+    +"thead th:last-child{text-align:right;}"
+    +".total-row td{padding:6px 10px;font-weight:800;font-size:12px;background:#f8fafc;}"
+    +".total-row td:last-child{text-align:right;font-size:14px;}"
+    +".footer{padding-top:8px;border-top:1px solid #e2e8f0;text-align:center;font-size:8px;color:#94a3b8;line-height:1.6;}"
+    +(doubleCopy
+      ?"@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}@page{size:A4 portrait;margin:8mm;}}"
+      :"@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}@page{size:A5 portrait;margin:8mm;}}");
   if(doubleCopy){
-    return "<!DOCTYPE html><html><head><meta charset='UTF-8'><style>"+css+"</style></head><body><div class='wrapper' style='position:relative'>"+slipContent+slipContent+"<div class='divider'></div></div></body></html>";
+    return "<!DOCTYPE html><html><head><meta charset='UTF-8'><style>"+css+"</style></head><body><div class='wrapper'>"+slipContent+"<div class='divider-h'></div>"+slipContent+"</div></body></html>";
   }
   return "<!DOCTYPE html><html><head><meta charset='UTF-8'><style>"+css+"</style></head><body>"+slipContent+"</body></html>";
 }
@@ -120,6 +109,7 @@ function printDuplicate(client, company, items, folio, status) {
   win.focus();
   setTimeout(()=>win.print(), 400);
 }
+
 
 function printList({ title, company, headers, rows, totals }) {
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
@@ -189,29 +179,49 @@ function CompanyModal({ company, onSave, onClose }) {
   );
 }
 
-function ConceptsModal({ concepts, onSave, onClose }) {
+function ConceptsModal({ concepts, conceptsConfig, onSave, onClose }) {
   const [list,setList] = useState([...concepts]);
+  const [config,setConfig] = useState({...DEFAULT_CONCEPTS_CONFIG,...(conceptsConfig||{})});
   const [newOne,setNewOne] = useState("");
+  const [newGrav,setNewGrav] = useState("gravado");
+  const toggleGrav = c=>setConfig(prev=>({...prev,[c]:prev[c]==="gravado"?"no_gravado":"gravado"}));
   return (
     <div style={S.overlay}>
-      <div style={{...S.modal,maxWidth:400}}>
+      <div style={{...S.modal,maxWidth:460}}>
         <div style={S.modalHead}><span style={S.modalTitle}>Gestionar Conceptos</span><button onClick={onClose} style={S.xBtn}>X</button></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 100px 36px",padding:"6px 0",marginBottom:6,gap:8}}>
+          <div style={{fontSize:10,color:"#475569",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Concepto</div>
+          <div style={{fontSize:10,color:"#475569",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"center"}}>Condicion</div>
+          <div/>
+        </div>
         <div style={{marginBottom:14}}>
           {list.map((c,i)=>(
-            <div key={c} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
-              <span style={{width:10,height:10,borderRadius:"50%",background:CONCEPT_COLORS[i%CONCEPT_COLORS.length],flexShrink:0}}/>
-              <span style={{flex:1,fontSize:13,color:"#e2e8f0"}}>{c}</span>
-              <button onClick={()=>{if(list.length>1)setList(list.filter(x=>x!==c));}} style={{...S.iconBtn,color:"#fca5a5",fontSize:12}}>X</button>
+            <div key={c} style={{display:"grid",gridTemplateColumns:"1fr 100px 36px",gap:8,alignItems:"center",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{width:10,height:10,borderRadius:"50%",background:CONCEPT_COLORS[i%CONCEPT_COLORS.length],flexShrink:0}}/>
+                <span style={{fontSize:13,color:"#e2e8f0"}}>{c}</span>
+              </div>
+              <button onClick={()=>toggleGrav(c)} style={{...S.badge,...(config[c]==="no_gravado"?{background:"rgba(253,230,138,0.15)",color:"#fde68a"}:{background:"rgba(110,231,183,0.15)",color:"#6ee7b7"}),fontSize:11,width:"100%",textAlign:"center"}}>
+                {config[c]==="no_gravado"?"No gravado":"Gravado"}
+              </button>
+              <button onClick={()=>{if(list.length>1){setList(list.filter(x=>x!==c));const nc={...config};delete nc[c];setConfig(nc);}}} style={{...S.iconBtn,color:"#fca5a5",fontSize:12}}>X</button>
             </div>
           ))}
         </div>
-        <div style={{display:"flex",gap:8}}>
-          <input value={newOne} onChange={e=>setNewOne(e.target.value)} onKeyDown={e=>e.key==="Enter"&&newOne.trim()&&!list.includes(newOne.trim())&&(setList([...list,newOne.trim()]),setNewOne(""))} placeholder="Nuevo concepto..." style={{...S.inp,flex:1}}/>
-          <button onClick={()=>{if(newOne.trim()&&!list.includes(newOne.trim())){setList([...list,newOne.trim()]);setNewOne("");}}} style={{...S.btn,...S.btnPrimary,padding:"8px 14px"}}>+</button>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <input value={newOne} onChange={e=>setNewOne(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&newOne.trim()&&!list.includes(newOne.trim())){setList([...list,newOne.trim()]);setConfig(p=>({...p,[newOne.trim()]:newGrav}));setNewOne("");}}} placeholder="Nuevo concepto..." style={{...S.inp,flex:1}}/>
+          <select value={newGrav} onChange={e=>setNewGrav(e.target.value)} style={{...S.inp,width:"auto",padding:"8px 10px",fontSize:12}}>
+            <option value="gravado">Gravado</option>
+            <option value="no_gravado">No gravado</option>
+          </select>
+          <button onClick={()=>{if(newOne.trim()&&!list.includes(newOne.trim())){setList([...list,newOne.trim()]);setConfig(p=>({...p,[newOne.trim()]:newGrav}));setNewOne("");}}} style={{...S.btn,...S.btnPrimary,padding:"8px 14px"}}>+</button>
         </div>
-        <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:18}}>
+        <div style={{fontSize:11,color:"#475569",marginBottom:14,padding:"6px 10px",background:"rgba(255,255,255,0.03)",borderRadius:6}}>
+          <span style={{color:"#6ee7b7"}}>Gravados</span> se incluyen en el analisis. <span style={{color:"#fde68a"}}>No gravados</span> quedan fuera.
+        </div>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>
           <button onClick={onClose} style={{...S.btn,...S.btnGhost}}>Cancelar</button>
-          <button onClick={()=>onSave(list)} style={{...S.btn,...S.btnPrimary}}>Guardar</button>
+          <button onClick={()=>onSave(list,config)} style={{...S.btn,...S.btnPrimary}}>Guardar</button>
         </div>
       </div>
     </div>
@@ -386,7 +396,13 @@ function CopyMonthModal({ client, onCopy, onClose }) {
   const preview = (client.items||[]).filter(i=>{const d=new Date(i.date);return d.getFullYear()===fromYear&&d.getMonth()===fromMonth;});
   const handleCopy = ()=>{
     if(!preview.length)return alert("No hay items en ese mes.");
-    const copied = preview.map(i=>({...i,id:uid(),date:toYear+"-"+String(toMonth+1).padStart(2,"0")+"-"+i.date.slice(8,10),status:"pendiente"}));
+    const fromMonthName = MONTHS[fromMonth];
+    const toMonthName = MONTHS[toMonth];
+    const copied = preview.map(i=>{
+      const newDate = toYear+"-"+String(toMonth+1).padStart(2,"0")+"-"+i.date.slice(8,10);
+      const newDesc = i.description ? i.description.replace(fromMonthName, toMonthName).replace(String(fromYear), String(toYear)) : i.description;
+      return {...i, id:uid(), date:newDate, status:"pendiente", description:newDesc};
+    });
     onCopy(copied);
   };
   return (
@@ -787,10 +803,13 @@ function RecibosView({ recibos, clients, company, concepts, onDeleteRecibo, onSa
   );
 }
 
-function MovimientosView({ clients, status, concepts, company, onUpdateClient }) {
+function MovimientosView({ clients, status, concepts, conceptsConfig, company, onUpdateClient }) {
   const [filterMonth,setFilterMonth] = useState("all");
   const [filterYear,setFilterYear] = useState(new Date().getFullYear());
+  const [sortDir,setSortDir] = useState("asc");
   const isPending = status==="pendiente";
+  const cfg = conceptsConfig||DEFAULT_CONCEPTS_CONFIG;
+
   const allItems = useMemo(()=>{
     const rows=[];
     clients.forEach(c=>{
@@ -798,12 +817,18 @@ function MovimientosView({ clients, status, concepts, company, onUpdateClient })
         if(i.status!==status)return;
         const d=new Date(i.date);
         if(filterMonth!=="all"&&(d.getMonth()!==Number(filterMonth)||d.getFullYear()!==filterYear))return;
-        rows.push({...i,clientName:c.name,clientId:c.id,client:c});
+        rows.push({...i,clientName:c.name,clientId:c.id,esGravado:cfg[i.concept]!=="no_gravado"});
       });
     });
-    return rows.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  },[clients,status,filterMonth,filterYear]);
+    return rows.sort((a,b)=>sortDir==="asc"?(a.clientName||"").localeCompare(b.clientName||""):(b.date||"").localeCompare(a.date||""));
+  },[clients,status,filterMonth,filterYear,sortDir,cfg]);
+
+  const gravados = allItems.filter(i=>i.esGravado);
+  const noGravados = allItems.filter(i=>!i.esGravado);
+  const totalGravado = gravados.reduce((s,i)=>s+(i.amount||0),0);
+  const totalNoGravado = noGravados.reduce((s,i)=>s+(i.amount||0),0);
   const totalAmt = allItems.reduce((s,i)=>s+(i.amount||0),0);
+
   const toggleStatus = (clientId,itemId)=>{
     const c=clients.find(x=>x.id===clientId);
     if(!c)return;
@@ -813,14 +838,30 @@ function MovimientosView({ clients, status, concepts, company, onUpdateClient })
     printList({
       title:(isPending?"Pendientes de cobro":"Cobrado")+(filterMonth!=="all"?" — "+MONTHS[filterMonth]+" "+filterYear:""),
       company,
-      headers:["Cliente","Concepto","Descripcion","Monto","Fecha"],
-      rows:allItems.map(i=>[i.clientName,i.concept,i.description,fmt(i.amount),i.date]),
-      totals:["","","TOTAL",fmt(totalAmt),""],
+      headers:["Cliente","Concepto","Descripcion","Monto","Fecha","Tipo"],
+      rows:allItems.map(i=>[i.clientName,i.concept,i.description,fmt(i.amount),i.date,i.esGravado?"Gravado":"No gravado"]),
+      totals:["","","TOTAL GRAVADO",fmt(totalGravado),"",""],
     });
   };
+
+  const ItemRow = ({item,idx})=>(
+    <div key={item.id} style={{display:"grid",gridTemplateColumns:"1.5fr 110px 2fr 100px 100px 110px",padding:"9px 14px",borderBottom:"1px solid rgba(255,255,255,0.03)",background:idx%2===0?"rgba(15,23,42,0.2)":"transparent",alignItems:"center"}}>
+      <div><div style={{fontSize:12,fontWeight:600,color:"#f1f5f9"}}>{item.clientName}</div></div>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <span style={{...S.ctag,background:getColor(item.concept,concepts)+"22",color:getColor(item.concept,concepts),fontSize:10}}>{item.concept}</span>
+      </div>
+      <span style={{fontSize:12,color:"#e2e8f0"}}>{item.description}</span>
+      <span style={{fontWeight:700,color:isPending?"#fca5a5":"#6ee7b7",fontSize:12}}>{fmt(item.amount)}</span>
+      <span style={{fontSize:11,color:"#475569"}}>{item.date}</span>
+      <button onClick={()=>toggleStatus(item.clientId,item.id)} style={{...S.badge,...(isPending?S.bPend:S.bPaid),fontSize:10}}>
+        {isPending?"Marcar cobrado":"Marcar pend."}
+      </button>
+    </div>
+  );
+
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
         <h2 style={{margin:0,fontSize:20,fontWeight:900,color:"#f1f5f9"}}>{isPending?"Pendientes de cobro":"Cobrado"}</h2>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>
@@ -828,48 +869,56 @@ function MovimientosView({ clients, status, concepts, company, onUpdateClient })
             {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
           </select>
           <select value={filterYear} onChange={e=>setFilterYear(Number(e.target.value))} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}>{[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}</select>
+          <select value={sortDir} onChange={e=>setSortDir(e.target.value)} style={{...S.inp,padding:"6px 10px",fontSize:12,width:"auto"}}><option value="asc">A-Z cliente</option><option value="desc">Mas reciente</option></select>
           <button onClick={handlePrint} style={{...S.btn,...S.btnGhost,padding:"6px 12px",fontSize:12}}>Imprimir</button>
         </div>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:20}}>
-        <div style={{...S.card,padding:"14px 16px"}}><div style={{fontWeight:800,fontSize:20,color:isPending?"#fca5a5":"#6ee7b7"}}>{fmt(totalAmt)}</div><div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>{isPending?"Total pendiente":"Total cobrado"}</div></div>
-        <div style={{...S.card,padding:"14px 16px"}}><div style={{fontWeight:800,fontSize:20,color:"#93c5fd"}}>{allItems.length}</div><div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>Movimientos</div></div>
-        <div style={{...S.card,padding:"14px 16px"}}><div style={{fontWeight:800,fontSize:20,color:"#fde68a"}}>{new Set(allItems.map(i=>i.clientId)).size}</div><div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>Clientes</div></div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:16}}>
+        <div style={{...S.card,padding:"12px 14px"}}><div style={{fontWeight:800,fontSize:18,color:"#6ee7b7"}}>{fmt(totalGravado)}</div><div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>Gravado</div></div>
+        <div style={{...S.card,padding:"12px 14px"}}><div style={{fontWeight:800,fontSize:18,color:"#fde68a"}}>{fmt(totalNoGravado)}</div><div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>No gravado</div></div>
+        <div style={{...S.card,padding:"12px 14px"}}><div style={{fontWeight:800,fontSize:18,color:isPending?"#fca5a5":"#93c5fd"}}>{fmt(totalAmt)}</div><div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>Total</div></div>
+        <div style={{...S.card,padding:"12px 14px"}}><div style={{fontWeight:800,fontSize:18,color:"#94a3b8"}}>{allItems.length}</div><div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:3}}>Movimientos</div></div>
       </div>
-      <div style={{...S.card,padding:0,overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"1.5fr 100px 2fr 100px 100px 110px",padding:"8px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-          {["Cliente","Concepto","Descripcion","Monto","Fecha","Accion"].map(h=><div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>)}
+
+      {gravados.length>0&&(
+        <div style={{...S.card,padding:0,overflow:"hidden",marginBottom:12}}>
+          <div style={{padding:"8px 14px",background:"rgba(110,231,183,0.08)",borderBottom:"1px solid rgba(110,231,183,0.12)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:11,fontWeight:700,color:"#6ee7b7",textTransform:"uppercase",letterSpacing:"0.06em"}}>Gravados ({gravados.length})</span>
+            <span style={{fontWeight:800,color:"#6ee7b7",fontSize:13}}>{fmt(totalGravado)}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1.5fr 110px 2fr 100px 100px 110px",padding:"7px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+            {["Cliente","Concepto","Descripcion","Monto","Fecha","Accion"].map(h=><div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>)}
+          </div>
+          {gravados.map((item,idx)=><ItemRow key={item.id} item={item} idx={idx}/>)}
         </div>
-        {allItems.length===0&&<div style={S.empty}>No hay {isPending?"pendientes":"cobros"} en este periodo</div>}
-        {allItems.map((item,idx)=>(
-          <div key={item.id} style={{display:"grid",gridTemplateColumns:"1.5fr 100px 2fr 100px 100px 110px",padding:"9px 14px",borderBottom:"1px solid rgba(255,255,255,0.03)",background:idx%2===0?"rgba(15,23,42,0.2)":"transparent",alignItems:"center"}}>
-            <div><div style={{fontSize:12,fontWeight:600,color:"#f1f5f9"}}>{item.clientName}</div></div>
-            <span style={{...S.ctag,background:getColor(item.concept,concepts)+"22",color:getColor(item.concept,concepts),fontSize:10}}>{item.concept}</span>
-            <span style={{fontSize:12,color:"#e2e8f0"}}>{item.description}</span>
-            <span style={{fontWeight:700,color:isPending?"#fca5a5":"#6ee7b7",fontSize:12}}>{fmt(item.amount)}</span>
-            <span style={{fontSize:11,color:"#475569"}}>{item.date}</span>
-            <button onClick={()=>toggleStatus(item.clientId,item.id)} style={{...S.badge,...(isPending?S.bPend:S.bPaid),fontSize:10}}>
-              {isPending?"Marcar cobrado":"Marcar pend."}
-            </button>
+      )}
+
+      {noGravados.length>0&&(
+        <div style={{...S.card,padding:0,overflow:"hidden"}}>
+          <div style={{padding:"8px 14px",background:"rgba(253,230,138,0.06)",borderBottom:"1px solid rgba(253,230,138,0.1)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:11,fontWeight:700,color:"#fde68a",textTransform:"uppercase",letterSpacing:"0.06em"}}>No gravados ({noGravados.length})</span>
+            <span style={{fontWeight:800,color:"#fde68a",fontSize:13}}>{fmt(totalNoGravado)}</span>
           </div>
-        ))}
-        {allItems.length>0&&(
-          <div style={{display:"grid",gridTemplateColumns:"1.5fr 100px 2fr 100px 100px 110px",padding:"9px 14px",background:"rgba(15,23,42,0.6)",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
-            <span style={{gridColumn:"1/4",fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>TOTAL</span>
-            <span style={{fontWeight:800,color:isPending?"#fca5a5":"#6ee7b7",fontSize:13}}>{fmt(totalAmt)}</span>
+          <div style={{display:"grid",gridTemplateColumns:"1.5fr 110px 2fr 100px 100px 110px",padding:"7px 14px",background:"rgba(15,23,42,0.8)",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+            {["Cliente","Concepto","Descripcion","Monto","Fecha","Accion"].map(h=><div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>)}
           </div>
-        )}
-      </div>
+          {noGravados.map((item,idx)=><ItemRow key={item.id} item={item} idx={idx}/>)}
+        </div>
+      )}
+
+      {allItems.length===0&&<div style={S.empty}>No hay {isPending?"pendientes":"cobros"} en este periodo</div>}
     </div>
   );
 }
 
-function ChartView({ clients, concepts }) {
+function ChartView({ clients, concepts, conceptsConfig }) {
+  const gravados = concepts.filter(c=>(conceptsConfig||{})[c]!=="no_gravado");
   const [chartType,setChartType] = useState("bar");
   const [year,setYear] = useState(new Date().getFullYear());
   const monthlyData = useMemo(()=>MONTHS_SHORT.map((m,mi)=>{
     const row={month:m};let total=0;
-    concepts.forEach(c=>{
+    gravados.forEach(c=>{
       let sum=0;
       clients.forEach(cl=>(cl.items||[]).forEach(item=>{
         const d=new Date(item.date);
@@ -878,8 +927,8 @@ function ChartView({ clients, concepts }) {
       if(sum>0)row[c]=sum;total+=sum;
     });row.Total=total;return row;
   }),[clients,year,concepts]);
-  const active = concepts.filter(c=>monthlyData.some(r=>r[c]));
-  const totals = concepts.map((c,ci)=>({concept:c,color:CONCEPT_COLORS[ci%CONCEPT_COLORS.length],total:clients.reduce((s,cl)=>s+(cl.items||[]).filter(i=>i.concept===c&&i.status==="pagado").reduce((a,b)=>a+(b.amount||0),0),0)})).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+  const active = gravados.filter(c=>monthlyData.some(r=>r[c]));
+  const totals = gravados.map(c=>({concept:c,color:CONCEPT_COLORS[concepts.indexOf(c)%CONCEPT_COLORS.length],total:clients.reduce((s,cl)=>s+(cl.items||[]).filter(i=>i.concept===c&&i.status==="pagado").reduce((a,b)=>a+(b.amount||0),0),0)})).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
   const grand = totals.reduce((s,c)=>s+c.total,0);
   const Tip = ({active:a,payload,label})=>a&&payload&&payload.length?(<div style={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,padding:"10px 14px"}}><div style={{fontWeight:700,marginBottom:6,color:"#f1f5f9",fontSize:13}}>{label}</div>{payload.map(p=><div key={p.name} style={{display:"flex",justifyContent:"space-between",gap:14,fontSize:12}}><span style={{color:getColor(p.name,concepts)}}>{p.name}</span><span style={{fontWeight:700,color:"#f1f5f9"}}>{fmt(p.value)}</span></div>)}</div>):null;
   return (
@@ -893,7 +942,8 @@ function ChartView({ clients, concepts }) {
         </div>
       </div>
       <div style={{...S.card,marginBottom:20}}>
-        <div style={{fontSize:12,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:16,fontWeight:700}}>Ingresos cobrados {year}</div>
+        <div style={{fontSize:12,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4,fontWeight:700}}>Ingresos cobrados {year}</div>
+        <div style={{fontSize:11,color:"#475569",marginBottom:14}}>Solo conceptos gravados ({gravados.length} de {concepts.length})</div>
         {!monthlyData.some(r=>r.Total>0)?<div style={S.empty}>Sin datos para {year}</div>:(
           <ResponsiveContainer width="100%" height={280}>
             {chartType==="bar"?(
@@ -938,6 +988,7 @@ export default function App() {
   const [dbLoading,setDbLoading] = useState(false);
   const [company,setCompany] = useState(DEFAULT_COMPANY);
   const [concepts,setConcepts] = useState(DEFAULT_CONCEPTS);
+  const [conceptsConfig,setConceptsConfig] = useState(DEFAULT_CONCEPTS_CONFIG);
   const [view,setView] = useState("chart");
   const [selected,setSelected] = useState(null);
   const [search,setSearch] = useState("");
@@ -951,7 +1002,7 @@ export default function App() {
     setDbLoading(true);
     const u1=onSnapshot(collection(db,"users",user.uid,"clients"),s=>{setClients(s.docs.map(d=>({id:d.id,...d.data()})));setDbLoading(false);});
     const u2=onSnapshot(doc(db,"users",user.uid,"settings","company"),s=>{if(s.exists())setCompany(s.data());});
-    const u3=onSnapshot(doc(db,"users",user.uid,"settings","concepts"),s=>{if(s.exists()&&s.data().list)setConcepts(s.data().list);});
+    const u3=onSnapshot(doc(db,"users",user.uid,"settings","concepts"),s=>{if(s.exists()){if(s.data().list)setConcepts(s.data().list);if(s.data().config)setConceptsConfig(s.data().config);}});
     const u4=onSnapshot(collection(db,"users",user.uid,"recibos"),s=>{setRecibos(s.docs.map(d=>({id:d.id,...d.data()})));});
     return()=>{u1();u2();u3();u4();};
   },[user]);
@@ -963,7 +1014,7 @@ export default function App() {
   const updateClient=async u=>{await saveClient(u);setSelected(u);};
   const deleteClient=async id=>{if(!window.confirm("Eliminar cliente?"))return;await deleteDoc(doc(db,"users",user.uid,"clients",id));setView("list");};
   const saveCompany=async p=>{setCompany(p);await setDoc(doc(db,"users",user.uid,"settings","company"),p);setShowCompany(false);};
-  const saveConcepts=async l=>{setConcepts(l);await setDoc(doc(db,"users",user.uid,"settings","concepts"),{list:l});setShowConcepts(false);};
+  const saveConcepts=async(l,cfg)=>{setConcepts(l);setConceptsConfig(cfg||DEFAULT_CONCEPTS_CONFIG);await setDoc(doc(db,"users",user.uid,"settings","concepts"),{list:l,config:cfg||DEFAULT_CONCEPTS_CONFIG});setShowConcepts(false);};
   const saveRecibo=async r=>await setDoc(doc(db,"users",user.uid,"recibos",r.id),r);
   const deleteRecibo=async id=>await deleteDoc(doc(db,"users",user.uid,"recibos",id));
 
@@ -1030,84 +1081,3 @@ export default function App() {
               <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...S.inp,padding:"7px 10px",fontSize:12,width:"auto"}}>
                 <option value="name">A-Z</option><option value="pending">Mayor deuda</option><option value="total">Mayor facturado</option>
               </select>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 110px 110px 100px 70px",padding:"7px 14px",background:"rgba(15,23,42,0.8)",borderRadius:"9px 9px 0 0",border:"1px solid rgba(255,255,255,0.06)"}}>
-              {["Cliente","CUIT","Condicion","Total","Cobrado","Pendiente",""].map(h=><div key={h} style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>)}
-            </div>
-            <div style={{border:"1px solid rgba(255,255,255,0.06)",borderTop:"none",borderRadius:"0 0 9px 9px",overflow:"hidden"}}>
-              {sorted.length===0&&<div style={S.empty}>{clients.length===0?"Agrega tu primer cliente!":"Sin resultados."}</div>}
-              {sorted.map((c,idx)=>(
-                <div key={c.id} onClick={()=>{setSelected(c);setView("cuenta");}} style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 110px 110px 100px 70px",padding:"11px 14px",borderBottom:"1px solid rgba(255,255,255,0.04)",background:idx%2===0?"rgba(15,23,42,0.3)":"rgba(20,30,50,0.4)",cursor:"pointer",alignItems:"center"}}>
-                  <div><div style={{fontWeight:700,fontSize:13,color:"#f1f5f9"}}>{c.name}</div>{c.notes&&<div style={{fontSize:10,color:"#334155",marginTop:1}}>{c.notes.slice(0,35)}{c.notes.length>35?"...":""}</div>}</div>
-                  <div style={{fontSize:11,color:"#64748b"}}>{c.cuit||"-"}</div>
-                  <div>{c.condicionFiscal?<span style={{...S.ctag,background:"rgba(147,197,253,0.1)",color:"#93c5fd",fontSize:10}}>{c.condicionFiscal}</span>:<span style={{color:"#334155",fontSize:11}}>-</span>}</div>
-                  <div style={{fontWeight:700,color:"#93c5fd",fontSize:12}}>{fmt(totalItems(c.items))}</div>
-                  <div style={{fontWeight:700,color:"#6ee7b7",fontSize:12}}>{fmt(paidItems(c.items))}</div>
-                  <div style={{fontWeight:700,color:pendingItems(c.items)>0?"#fca5a5":"#6ee7b7",fontSize:12}}>{fmt(pendingItems(c.items))}</div>
-                  <div style={{display:"flex",gap:3}} onClick={e=>e.stopPropagation()}>
-                    <button onClick={()=>{setSelected(c);setView("edit");}} style={{...S.iconBtn,color:"#fde68a",fontSize:12}}>E</button>
-                    <button onClick={()=>deleteClient(c.id)} style={{...S.iconBtn,color:"#fca5a5",fontSize:12}}>X</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {clients.length>0&&(
-              <div style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 110px 110px 100px 70px",padding:"9px 14px",background:"rgba(15,23,42,0.8)",borderRadius:8,marginTop:6,border:"1px solid rgba(255,255,255,0.06)"}}>
-                <div style={{gridColumn:"1/4",fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>TOTALES</div>
-                <div style={{fontWeight:800,color:"#93c5fd",fontSize:12}}>{fmt(clients.reduce((s,c)=>s+totalItems(c.items),0))}</div>
-                <div style={{fontWeight:800,color:"#6ee7b7",fontSize:12}}>{fmt(allPaid)}</div>
-                <div style={{fontWeight:800,color:"#fca5a5",fontSize:12}}>{fmt(allPend)}</div>
-              </div>
-            )}
-          </>
-        )}
-        {!dbLoading&&view==="add"&&<ClientForm onSave={addClient} onCancel={()=>setView("list")}/>}
-        {!dbLoading&&view==="edit"&&selected&&<ClientForm initial={selected} onSave={async d=>{await updateClient({...selected,...d});setView("list");}} onCancel={()=>setView("list")}/>}
-        {!dbLoading&&view==="cuenta"&&selected&&(
-          <CuentaCorriente
-            client={clients.find(c=>c.id===selected&&selected.id)||selected}
-            concepts={concepts} company={company}
-            onBack={()=>setView("list")}
-            onUpdate={updateClient}
-            onSaveRecibo={saveRecibo}
-          />
-        )}
-        {!dbLoading&&view==="recibos"&&<RecibosView recibos={recibos} clients={clients} company={company} concepts={concepts} onDeleteRecibo={deleteRecibo} onSaveRecibo={saveRecibo} onUpdateClient={updateClient}/>}
-        {!dbLoading&&view==="pendientes"&&<MovimientosView clients={clients} status="pendiente" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
-        {!dbLoading&&view==="cobrado"&&<MovimientosView clients={clients} status="pagado" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
-        {!dbLoading&&view==="chart"&&<ChartView clients={clients} concepts={concepts}/>}
-      </div>
-      {showCompany&&<CompanyModal company={company} onSave={saveCompany} onClose={()=>setShowCompany(false)}/>}
-      {showConcepts&&<ConceptsModal concepts={concepts} onSave={saveConcepts} onClose={()=>setShowConcepts(false)}/>}
-    </div>
-  );
-}
-
-const S = {
-  root:{display:"flex",minHeight:"100vh",background:"#080d1a",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:"#e2e8f0"},
-  nav:{width:200,flexShrink:0,background:"rgba(10,18,35,0.98)",borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",flexDirection:"column",padding:"16px 12px",position:"sticky",top:0,height:"100vh",overflowY:"auto"},
-  navBtn:{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:8,border:"none",background:"none",color:"#475569",fontSize:13,fontWeight:500,cursor:"pointer",textAlign:"left",width:"100%"},
-  navActive:{background:"rgba(110,231,183,0.08)",color:"#6ee7b7",fontWeight:700},
-  main:{flex:1,padding:"24px 28px",overflowY:"auto",minHeight:"100vh"},
-  card:{background:"rgba(20,30,50,0.7)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"16px"},
-  field:{display:"flex",flexDirection:"column",gap:5},
-  lbl:{fontSize:10,color:"#475569",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em"},
-  inp:{background:"rgba(8,13,26,0.7)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:7,padding:"8px 12px",color:"#f1f5f9",fontSize:13,outline:"none"},
-  btn:{border:"none",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:600,cursor:"pointer"},
-  btnPrimary:{background:"linear-gradient(135deg,#6ee7b7,#3b82f6)",color:"#050a14"},
-  btnGhost:{background:"rgba(255,255,255,0.05)",color:"#64748b",border:"1px solid rgba(255,255,255,0.08)"},
-  btnWa:{background:"linear-gradient(135deg,#25d366,#128c7e)",color:"#fff"},
-  iconBtn:{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"4px 6px",borderRadius:6},
-  badge:{border:"none",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:600,cursor:"pointer"},
-  bPaid:{background:"rgba(110,231,183,0.1)",color:"#6ee7b7"},
-  bPend:{background:"rgba(252,165,165,0.1)",color:"#fca5a5"},
-  ctag:{display:"inline-flex",alignItems:"center",padding:"2px 8px",borderRadius:20,fontSize:11,fontWeight:600},
-  empty:{padding:36,textAlign:"center",color:"#334155",fontSize:13},
-  overlay:{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16},
-  modal:{background:"#0e1829",border:"1px solid rgba(255,255,255,0.09)",borderRadius:16,padding:24,width:"100%",maxHeight:"92vh",overflowY:"auto"},
-  modalHead:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8},
-  modalTitle:{fontWeight:800,fontSize:16,color:"#f1f5f9"},
-  xBtn:{background:"none",border:"none",color:"#475569",fontSize:17,cursor:"pointer"},
-  checkRow:{display:"flex",alignItems:"center",gap:8,padding:"6px 2px",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer"},
-  ticketPre:{background:"#050a14",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9,padding:14,fontSize:11,color:"#94a3b8",lineHeight:1.9,whiteSpace:"pre-wrap",fontFamily:"monospace",margin:0},
-};
