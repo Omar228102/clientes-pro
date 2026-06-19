@@ -17,10 +17,6 @@ const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 
 const DEFAULT_CONCEPTS = ["Honorarios","Consultoria","Mantenimiento","Materiales","Traslado","Capacitacion","Otro"];
-const DEFAULT_CONCEPTS_CONFIG = {
-  "Honorarios":"gravado","Consultoria":"gravado","Mantenimiento":"gravado",
-  "Materiales":"no_gravado","Traslado":"no_gravado","Capacitacion":"gravado","Otro":"gravado"
-};
 const CONCEPT_COLORS = ["#6ee7b7","#93c5fd","#fde68a","#f9a8d4","#c4b5fd","#fb923c","#94a3b8","#67e8f9","#a78bfa","#fdba74"];
 const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const MONTHS_SHORT = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -44,10 +40,7 @@ function generatePDF(client, company, items, folio, status) {
       <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#94a3b8;font-style:italic">${i.description||""}</td>
       <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;text-align:right;font-weight:700">${fmt(i.amount)}</td>
     </tr>
-    <tr><td colspan="3" style="padding:2px 12px 10px 12px;border-bottom:1px solid #e2e8f0">
-      <div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Observaciones</div>
-      <div style="height:22px;border-bottom:1px solid #cbd5e1;width:100%"></div>
-    </td></tr>`).join("");
+`).join("");
   const isPend = !status || status==="pendiente";
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
     *{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;color:#111;}
@@ -86,14 +79,12 @@ function generatePDF(client, company, items, folio, status) {
         </div>
       </div>
       <div class="recibo-box">
-        <div class="recibo-title">RECIBO</div>
-        <div class="recibo-num">N&deg; ${folio}</div>
+        <div class="recibo-title">RESUMEN MENSUAL</div>
         <div class="recibo-date">${nowStr}</div>
-        <div class="estado">${isPend?"PENDIENTE DE COBRO":"COBRADO"}</div>
       </div>
     </div>
     <div class="client-section">
-      <div class="client-label">Recibimos de:</div>
+      <div class="client-label">Para:</div>
       <div class="client-name">${client.name}</div>
       <div class="client-detail">
         ${client.cuit?"CUIT: "+client.cuit+"<br>":""}
@@ -106,7 +97,7 @@ function generatePDF(client, company, items, folio, status) {
       <tbody>${rows}</tbody>
       <tfoot><tr class="total-row"><td colspan="2">TOTAL</td><td>${fmt(total)}</td></tr></tfoot>
     </table>
-    <div class="footer">${company.name||""} ${company.extra?"&middot; "+company.extra:""}<br>Gracias por su confianza</div>
+    <div class="footer">${company.name||""} ${company.extra?"&middot; "+company.extra:""}<br>Una vez acreditado el pago se emitira el recibo correspondiente.</div>
   </div></body></html>`;
   const win = window.open("","_blank");
   win.document.write(html);
@@ -182,49 +173,29 @@ function CompanyModal({ company, onSave, onClose }) {
   );
 }
 
-function ConceptsModal({ concepts, conceptsConfig, onSave, onClose }) {
+function ConceptsModal({ concepts, onSave, onClose }) {
   const [list,setList] = useState([...concepts]);
-  const [config,setConfig] = useState({...DEFAULT_CONCEPTS_CONFIG,...(conceptsConfig||{})});
   const [newOne,setNewOne] = useState("");
-  const [newGrav,setNewGrav] = useState("gravado");
-  const toggleGrav = (c) => setConfig(prev=>({...prev,[c]:prev[c]==="gravado"?"no_gravado":"gravado"}));
   return (
     <div style={S.overlay}>
-      <div style={{...S.modal,maxWidth:460}}>
+      <div style={{...S.modal,maxWidth:400}}>
         <div style={S.modalHead}><span style={S.modalTitle}>Gestionar Conceptos</span><button onClick={onClose} style={S.xBtn}>X</button></div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",padding:"6px 0",marginBottom:6,gap:8}}>
-          <div style={{fontSize:10,color:"#475569",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Concepto</div>
-          <div style={{fontSize:10,color:"#475569",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"center"}}>Condicion</div>
-          <div/>
-        </div>
         <div style={{marginBottom:14}}>
           {list.map((c,i)=>(
-            <div key={c} style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",gap:8,alignItems:"center",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{width:10,height:10,borderRadius:"50%",background:CONCEPT_COLORS[i%CONCEPT_COLORS.length],flexShrink:0}}/>
-                <span style={{fontSize:13,color:"#e2e8f0"}}>{c}</span>
-              </div>
-              <button onClick={()=>toggleGrav(c)} style={{...S.badge,...(config[c]==="no_gravado"?{background:"rgba(253,230,138,0.15)",color:"#fde68a"}:{background:"rgba(110,231,183,0.15)",color:"#6ee7b7"}),fontSize:11,width:"100%",textAlign:"center"}}>
-                {config[c]==="no_gravado"?"No gravado":"Gravado"}
-              </button>
-              <button onClick={()=>{if(list.length>1){setList(list.filter(x=>x!==c));const nc={...config};delete nc[c];setConfig(nc);}}} style={{...S.iconBtn,color:"#fca5a5",fontSize:12}}>X</button>
+            <div key={c} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+              <span style={{width:10,height:10,borderRadius:"50%",background:CONCEPT_COLORS[i%CONCEPT_COLORS.length],flexShrink:0}}/>
+              <span style={{flex:1,fontSize:13,color:"#e2e8f0"}}>{c}</span>
+              <button onClick={()=>{if(list.length>1)setList(list.filter(x=>x!==c));}} style={{...S.iconBtn,color:"#fca5a5",fontSize:12}}>X</button>
             </div>
           ))}
         </div>
-        <div style={{display:"flex",gap:8,marginBottom:6}}>
-          <input value={newOne} onChange={e=>setNewOne(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&newOne.trim()&&!list.includes(newOne.trim())){setList([...list,newOne.trim()]);setConfig(p=>({...p,[newOne.trim()]:newGrav}));setNewOne("");}}} placeholder="Nuevo concepto..." style={{...S.inp,flex:1}}/>
-          <select value={newGrav} onChange={e=>setNewGrav(e.target.value)} style={{...S.inp,width:"auto",padding:"8px 10px",fontSize:12}}>
-            <option value="gravado">Gravado</option>
-            <option value="no_gravado">No gravado</option>
-          </select>
-          <button onClick={()=>{if(newOne.trim()&&!list.includes(newOne.trim())){setList([...list,newOne.trim()]);setConfig(p=>({...p,[newOne.trim()]:newGrav}));setNewOne("");}}} style={{...S.btn,...S.btnPrimary,padding:"8px 14px"}}>+</button>
+        <div style={{display:"flex",gap:8}}>
+          <input value={newOne} onChange={e=>setNewOne(e.target.value)} onKeyDown={e=>e.key==="Enter"&&newOne.trim()&&!list.includes(newOne.trim())&&(setList([...list,newOne.trim()]),setNewOne(""))} placeholder="Nuevo concepto..." style={{...S.inp,flex:1}}/>
+          <button onClick={()=>{if(newOne.trim()&&!list.includes(newOne.trim())){setList([...list,newOne.trim()]);setNewOne("");}}} style={{...S.btn,...S.btnPrimary,padding:"8px 14px"}}>+</button>
         </div>
-        <div style={{fontSize:11,color:"#475569",marginBottom:16,padding:"6px 10px",background:"rgba(255,255,255,0.03)",borderRadius:6}}>
-          Los conceptos <span style={{color:"#6ee7b7"}}>gravados</span> se incluyen en el analisis de ingresos. Los <span style={{color:"#fde68a"}}>no gravados</span> quedan fuera.
-        </div>
-        <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:4}}>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:18}}>
           <button onClick={onClose} style={{...S.btn,...S.btnGhost}}>Cancelar</button>
-          <button onClick={()=>onSave(list,config)} style={{...S.btn,...S.btnPrimary}}>Guardar</button>
+          <button onClick={()=>onSave(list)} style={{...S.btn,...S.btnPrimary}}>Guardar</button>
         </div>
       </div>
     </div>
@@ -863,13 +834,12 @@ function MovimientosView({ clients, status, concepts, company, onUpdateClient })
   );
 }
 
-function ChartView({ clients, concepts, conceptsConfig }) {
-  const gravados = concepts.filter(c=>(conceptsConfig||{})[c]!=="no_gravado");
+function ChartView({ clients, concepts }) {
   const [chartType,setChartType] = useState("bar");
   const [year,setYear] = useState(new Date().getFullYear());
   const monthlyData = useMemo(()=>MONTHS_SHORT.map((m,mi)=>{
     const row={month:m};let total=0;
-    gravados.forEach(c=>{
+    concepts.forEach(c=>{
       let sum=0;
       clients.forEach(cl=>(cl.items||[]).forEach(item=>{
         const d=new Date(item.date);
@@ -878,8 +848,8 @@ function ChartView({ clients, concepts, conceptsConfig }) {
       if(sum>0)row[c]=sum;total+=sum;
     });row.Total=total;return row;
   }),[clients,year,concepts]);
-  const active = gravados.filter(c=>monthlyData.some(r=>r[c]));
-  const totals = gravados.map((c)=>({concept:c,color:CONCEPT_COLORS[concepts.indexOf(c)%CONCEPT_COLORS.length],total:clients.reduce((s,cl)=>s+(cl.items||[]).filter(i=>i.concept===c&&i.status==="pagado").reduce((a,b)=>a+(b.amount||0),0),0)})).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+  const active = concepts.filter(c=>monthlyData.some(r=>r[c]));
+  const totals = concepts.map((c,ci)=>({concept:c,color:CONCEPT_COLORS[ci%CONCEPT_COLORS.length],total:clients.reduce((s,cl)=>s+(cl.items||[]).filter(i=>i.concept===c&&i.status==="pagado").reduce((a,b)=>a+(b.amount||0),0),0)})).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
   const grand = totals.reduce((s,c)=>s+c.total,0);
   const Tip = ({active:a,payload,label})=>a&&payload&&payload.length?(<div style={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,padding:"10px 14px"}}><div style={{fontWeight:700,marginBottom:6,color:"#f1f5f9",fontSize:13}}>{label}</div>{payload.map(p=><div key={p.name} style={{display:"flex",justifyContent:"space-between",gap:14,fontSize:12}}><span style={{color:getColor(p.name,concepts)}}>{p.name}</span><span style={{fontWeight:700,color:"#f1f5f9"}}>{fmt(p.value)}</span></div>)}</div>):null;
   return (
@@ -893,8 +863,7 @@ function ChartView({ clients, concepts, conceptsConfig }) {
         </div>
       </div>
       <div style={{...S.card,marginBottom:20}}>
-        <div style={{fontSize:12,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4,fontWeight:700}}>Ingresos cobrados {year}</div>
-        <div style={{fontSize:11,color:"#475569",marginBottom:16}}>Solo conceptos gravados ({gravados.length} de {concepts.length})</div>
+        <div style={{fontSize:12,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:16,fontWeight:700}}>Ingresos cobrados {year}</div>
         {!monthlyData.some(r=>r.Total>0)?<div style={S.empty}>Sin datos para {year}</div>:(
           <ResponsiveContainer width="100%" height={280}>
             {chartType==="bar"?(
@@ -939,7 +908,6 @@ export default function App() {
   const [dbLoading,setDbLoading] = useState(false);
   const [company,setCompany] = useState(DEFAULT_COMPANY);
   const [concepts,setConcepts] = useState(DEFAULT_CONCEPTS);
-  const [conceptsConfig,setConceptsConfig] = useState(DEFAULT_CONCEPTS_CONFIG);
   const [view,setView] = useState("chart");
   const [selected,setSelected] = useState(null);
   const [search,setSearch] = useState("");
@@ -953,7 +921,7 @@ export default function App() {
     setDbLoading(true);
     const u1=onSnapshot(collection(db,"users",user.uid,"clients"),s=>{setClients(s.docs.map(d=>({id:d.id,...d.data()})));setDbLoading(false);});
     const u2=onSnapshot(doc(db,"users",user.uid,"settings","company"),s=>{if(s.exists())setCompany(s.data());});
-    const u3=onSnapshot(doc(db,"users",user.uid,"settings","concepts"),s=>{if(s.exists()){if(s.data().list)setConcepts(s.data().list);if(s.data().config)setConceptsConfig(s.data().config);}});
+    const u3=onSnapshot(doc(db,"users",user.uid,"settings","concepts"),s=>{if(s.exists()&&s.data().list)setConcepts(s.data().list);});
     const u4=onSnapshot(collection(db,"users",user.uid,"recibos"),s=>{setRecibos(s.docs.map(d=>({id:d.id,...d.data()})));});
     return()=>{u1();u2();u3();u4();};
   },[user]);
@@ -965,7 +933,7 @@ export default function App() {
   const updateClient=async u=>{await saveClient(u);setSelected(u);};
   const deleteClient=async id=>{if(!window.confirm("Eliminar cliente?"))return;await deleteDoc(doc(db,"users",user.uid,"clients",id));setView("list");};
   const saveCompany=async p=>{setCompany(p);await setDoc(doc(db,"users",user.uid,"settings","company"),p);setShowCompany(false);};
-  const saveConcepts=async(l,cfg)=>{setConcepts(l);setConceptsConfig(cfg);await setDoc(doc(db,"users",user.uid,"settings","concepts"),{list:l,config:cfg});setShowConcepts(false);};
+  const saveConcepts=async l=>{setConcepts(l);await setDoc(doc(db,"users",user.uid,"settings","concepts"),{list:l});setShowConcepts(false);};
   const saveRecibo=async r=>await setDoc(doc(db,"users",user.uid,"recibos",r.id),r);
   const deleteRecibo=async id=>await deleteDoc(doc(db,"users",user.uid,"recibos",id));
 
@@ -1077,10 +1045,10 @@ export default function App() {
         {!dbLoading&&view==="recibos"&&<RecibosView recibos={recibos} clients={clients} company={company} concepts={concepts} onDeleteRecibo={deleteRecibo} onSaveRecibo={saveRecibo} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="pendientes"&&<MovimientosView clients={clients} status="pendiente" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
         {!dbLoading&&view==="cobrado"&&<MovimientosView clients={clients} status="pagado" concepts={concepts} company={company} onUpdateClient={updateClient}/>}
-        {!dbLoading&&view==="chart"&&<ChartView clients={clients} concepts={concepts} conceptsConfig={conceptsConfig}/>}
+        {!dbLoading&&view==="chart"&&<ChartView clients={clients} concepts={concepts}/>}
       </div>
       {showCompany&&<CompanyModal company={company} onSave={saveCompany} onClose={()=>setShowCompany(false)}/>}
-      {showConcepts&&<ConceptsModal concepts={concepts} conceptsConfig={conceptsConfig} onSave={saveConcepts} onClose={()=>setShowConcepts(false)}/>}
+      {showConcepts&&<ConceptsModal concepts={concepts} onSave={saveConcepts} onClose={()=>setShowConcepts(false)}/>}
     </div>
   );
 }
